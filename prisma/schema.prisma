@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+  updatedBy String?
+
+  // Class Teacher specific fields - Made optional and one-to-many
+  assignedClasses Class[] @relation("ClassTeacher")
+
+  // Parent specific fields
+  children Student[] @relation("ParentChildren")
+
+  // Audit fields
+  createdStudents Student[] @relation("CreatedBy")
+  updatedStudents Student[] @relation("UpdatedBy")
+  createdMarks    Mark[]    @relation("MarksCreatedBy")
+  createdAttendance Attendance[] @relation("AttendanceCreatedBy")
+
+  @@map("users")
+}
+
+model AcademicYear {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  year      String   @unique
+  startDate DateTime?
+  endDate   DateTime?
+  isActive  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  terms     Term[]
+  students  Student[]
+  classes   Class[]
+  marks     Mark[]
+  attendance Attendance[]
+
+  @@map("academic_years")
+}
+
+model Term {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  startDate      DateTime?
+  endDate        DateTime?
+  academicYearId String?     @db.ObjectId
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  students   Student[]
+  marks      Mark[]
+  attendance Attendance[]
+
+  @@map("terms")
+}
+
+model Class {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  academicYearId String?     @db.ObjectId
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id])
+  classTeacherId String?     @db.ObjectId
+  classTeacher   User?       @relation("ClassTeacher", fields: [classTeacherId], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  students     Student[]
+  subjects     Subject[]
+  marks        Mark[]
+  attendance   Attendance[]
+
+  @@map("classes")
+}
+
+model Subject {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  code      String?
+  classId   String?  @db.ObjectId
+  class     Class?   @relation(fields: [classId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  marks Mark[]
+
+  @@map("subjects")
+}
+
+model Student {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  gender         Gender?
+  age            Int?
+  photo          String?
+  classId        String?     @db.ObjectId
+  class          Class?      @relation(fields: [classId], references: [id])
+  termId         String?     @db.ObjectId
+  term           Term?       @relation(fields: [termId], references: [id])
+  academicYearId String?     @db.ObjectId
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id])
+  parentId       String?     @db.ObjectId
+  parent         User?       @relation("ParentChildren", fields: [parentId], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  createdById    String?     @db.ObjectId
+  createdBy      User?       @relation("CreatedBy", fields: [createdById], references: [id])
+  updatedById    String?     @db.ObjectId
+  updatedBy      User?       @relation("UpdatedBy", fields: [updatedById], references: [id])
+
+  marks      Mark[]
+  attendance Attendance[]
+  reportCards ReportCard[]
+
+  @@map("students")
+}
+
+model Mark {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  studentId      String?     @db.ObjectId
+  student        Student?    @relation(fields: [studentId], references: [id])
+  subjectId      String?     @db.ObjectId
+  subject        Subject?    @relation(fields: [subjectId], references: [id])
+  classId        String?     @db.ObjectId
+  class          Class?      @relation(fields: [classId], references: [id])
+  termId         String?     @db.ObjectId
+  term           Term?       @relation(fields: [termId], references: [id])
+  academicYearId String?     @db.ObjectId
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id])
+  
+  // Marks for different assessments - All optional
+  homework       Float?
+  bot            Float? // Beginning of Term
+  midterm        Float?
+  eot            Float? // End of Term
+  total          Float?
+  grade          String?
+  
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  createdById    String?     @db.ObjectId
+  createdBy      User?       @relation("MarksCreatedBy", fields: [createdById], references: [id])
+
+  @@map("marks")
+}
+
+model Attendance {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  studentId      String?     @db.ObjectId
+  student        Student?    @relation(fields: [studentId], references: [id])
+  classId        String?     @db.ObjectId
+  class          Class?      @relation(fields: [classId], references: [id])
+  termId         String?     @db.ObjectId
+  term           Term?       @relation(fields: [termId], references: [id])
+  academicYearId String?     @db.ObjectId
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id])
+  
+  date           DateTime?
+  status         AttendanceStatus?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  createdById    String?     @db.ObjectId
+  createdBy      User?       @relation("AttendanceCreatedBy", fields: [createdById], references: [id])
+
+  @@map("attendance")
+}
+
+model GradingSystem {
+  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  grade       String
+  minMark     Float?
+  maxMark     Float?
+  comment     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("grading_system")
+}
+
+model ReportCard {
+  id                    String   @id @default(auto()) @map("_id") @db.ObjectId
+  studentId             String?  @db.ObjectId
+  student               Student? @relation(fields: [studentId], references: [id])
+  
+  // Personal Assessment - All optional
+  discipline            String?
+  cleanliness           String?
+  classWorkPresentation String?
+  adherenceToSchool     String?
+  coCurricularActivities String?
+  considerationToOthers String?
+  speakingEnglish       String?
+  
+  // Teacher Comments - Optional
+  classTeacherComment   String?
+  headteacherComment    String?
+  
+  // Status - Optional
+  isApproved            Boolean  @default(false)
+  approvedAt            DateTime?
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("report_cards")
+}
+
+enum UserRole {
+  ADMIN
+  HEADTEACHER
+  CLASS_TEACHER
+  SECRETARY
+  PARENT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
