@@ -8,33 +8,33 @@ export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || (session.user.role !== "ADMIN" && session.user.role !== "HEADTEACHER")) {
+    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { searchParams } = new URL(request.url)
-    const role = searchParams.get("role")
-
-    const whereClause = role ? { role: role as any } : {}
-
-    const users = await prisma.user.findMany({
-      where: whereClause,
+    const teachers = await prisma.user.findMany({
+      where: { role: "CLASS_TEACHER" },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
         createdAt: true,
-        updatedAt: true,
+        assignedClasses: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
       orderBy: {
         createdAt: "desc",
       },
     })
 
-    return NextResponse.json(users)
+    return NextResponse.json(teachers)
   } catch (error) {
-    console.error("Error fetching users:", error)
+    console.error("Error fetching teachers:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -43,14 +43,14 @@ export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || (session.user.role !== "ADMIN" && session.user.role !== "HEADTEACHER")) {
+    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await request.json()
-    const { name, email, password, role } = body
+    const { name, email, password, classIds } = body
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
@@ -66,13 +66,13 @@ export async function POST(request: Request) {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12)
 
-    // Create user
-    const user = await prisma.user.create({
+    // Create teacher
+    const teacher = await prisma.user.create({
       data: {
         name,
         email,
         password: hashedPassword,
-        role,
+        role: "CLASS_TEACHER",
       },
       select: {
         id: true,
@@ -83,9 +83,17 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json(user, { status: 201 })
+    // Assign classes if provided
+    if (classIds && classIds.length > 0) {
+      await prisma.class.updateMany({
+        where: { id: { in: classIds } },
+        data: { classTeacherId: teacher.id },
+      })
+    }
+
+    return NextResponse.json(teacher, { status: 201 })
   } catch (error) {
-    console.error("Error creating user:", error)
+    console.error("Error creating teacher:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

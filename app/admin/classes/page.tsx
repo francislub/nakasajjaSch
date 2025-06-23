@@ -83,10 +83,14 @@ export default function ClassesPage() {
         teachersResponse.json(),
       ])
 
-      setClasses(classesData)
-      setAcademicYears(academicYearsData)
-      setTeachers(teachersData)
+      setClasses(classesData || [])
+      setAcademicYears(academicYearsData || [])
+      setTeachers(Array.isArray(teachersData) ? teachersData : [])
     } catch (error) {
+      console.error("Error fetching data:", error)
+      setClasses([])
+      setAcademicYears([])
+      setTeachers([])
       toast({
         title: "Error",
         description: "Failed to fetch data",

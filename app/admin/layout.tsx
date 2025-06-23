@@ -40,7 +40,7 @@ export default async function DashboardLayout({
       <SidebarProvider>
         {getSidebarComponent()}
         <SidebarInset className="flex-1">
-          <main className="flex-1 overflow-auto p-0">{children}</main>
+          <main className="flex-1 overflow-auto">{children}</main>
         </SidebarInset>
       </SidebarProvider>
     </div>

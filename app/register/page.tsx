@@ -54,7 +54,7 @@ export default function RegisterPage() {
     }
 
     try {
-      const response = await fetch("/api/users", {
+      const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -64,6 +64,7 @@ export default function RegisterPage() {
           email: formData.email,
           password: formData.password,
           role: formData.role,
+          accessCode: formData.accessCode,
         }),
       })
 

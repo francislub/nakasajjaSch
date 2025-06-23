@@ -8,33 +8,27 @@ export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || (session.user.role !== "ADMIN" && session.user.role !== "HEADTEACHER")) {
+    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { searchParams } = new URL(request.url)
-    const role = searchParams.get("role")
-
-    const whereClause = role ? { role: role as any } : {}
-
-    const users = await prisma.user.findMany({
-      where: whereClause,
+    const secretaries = await prisma.user.findMany({
+      where: { role: "SECRETARY" },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
         createdAt: true,
-        updatedAt: true,
       },
       orderBy: {
         createdAt: "desc",
       },
     })
 
-    return NextResponse.json(users)
+    return NextResponse.json(secretaries)
   } catch (error) {
-    console.error("Error fetching users:", error)
+    console.error("Error fetching secretaries:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -43,14 +37,14 @@ export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || (session.user.role !== "ADMIN" && session.user.role !== "HEADTEACHER")) {
+    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await request.json()
-    const { name, email, password, role } = body
+    const { name, email, password } = body
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
@@ -66,13 +60,13 @@ export async function POST(request: Request) {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12)
 
-    // Create user
-    const user = await prisma.user.create({
+    // Create secretary
+    const secretary = await prisma.user.create({
       data: {
         name,
         email,
         password: hashedPassword,
-        role,
+        role: "SECRETARY",
       },
       select: {
         id: true,
@@ -83,9 +77,9 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json(user, { status: 201 })
+    return NextResponse.json(secretary, { status: 201 })
   } catch (error) {
-    console.error("Error creating user:", error)
+    console.error("Error creating secretary:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
