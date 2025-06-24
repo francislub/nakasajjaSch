@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { UserPlus, Lock, CheckCircle, Plus, Search } from "lucide-react"
+import { UserPlus, Plus, Search } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
@@ -36,9 +36,7 @@ interface Parent {
   }>
 }
 
-export default function RegisterStudentPage() {
-  const [isCodeVerified, setIsCodeVerified] = useState(false)
-  const [accessCode, setAccessCode] = useState("")
+export default function SecretaryRegisterStudentPage() {
   const [classes, setClasses] = useState<Class[]>([])
   const [terms, setTerms] = useState<Term[]>([])
   const [parents, setParents] = useState<Parent[]>([])
@@ -65,32 +63,14 @@ export default function RegisterStudentPage() {
   })
 
   useEffect(() => {
-    if (isCodeVerified) {
-      fetchData()
-    }
-  }, [isCodeVerified])
+    fetchData()
+  }, [])
 
   useEffect(() => {
-    if (parentSearch && isCodeVerified) {
+    if (parentSearch) {
       fetchParents()
     }
-  }, [parentSearch, isCodeVerified])
-
-  const handleCodeVerification = () => {
-    if (accessCode === "12345") {
-      setIsCodeVerified(true)
-      toast({
-        title: "Access Granted",
-        description: "You can now register students",
-      })
-    } else {
-      toast({
-        title: "Access Denied",
-        description: "Invalid access code",
-        variant: "destructive",
-      })
-    }
-  }
+  }, [parentSearch])
 
   const fetchData = async () => {
     setLoading(true)
@@ -99,8 +79,8 @@ export default function RegisterStudentPage() {
 
       if (classesResponse.ok && termsResponse.ok) {
         const [classesData, termsData] = await Promise.all([classesResponse.json(), termsResponse.json()])
-        setClasses(classesData)
-        setTerms(termsData)
+        setClasses(classesData.classes || classesData || [])
+        setTerms(termsData.terms || termsData || [])
       }
     } catch (error) {
       toast({
@@ -158,7 +138,7 @@ export default function RegisterStudentPage() {
           title: "Success",
           description: "Student registered successfully",
         })
-        router.push("/admin/students")
+        router.push("/secretary/students")
       } else {
         const error = await response.json()
         throw new Error(error.error || "Failed to register student")
@@ -182,63 +162,19 @@ export default function RegisterStudentPage() {
 
   const selectedParent = parents.find((p) => p.id === formData.parentId)
 
-  if (!isCodeVerified) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-        <Card className="w-full max-w-md shadow-xl border-0 bg-white/95 backdrop-blur">
-          <CardHeader className="text-center space-y-4">
-            <div className="mx-auto w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center">
-              <Lock className="text-white w-10 h-10" />
-            </div>
-            <div>
-              <CardTitle className="text-2xl font-bold text-gray-900">Access Required</CardTitle>
-              <CardDescription className="text-blue-600 font-medium">
-                Enter access code to register students
-              </CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="accessCode">Access Code</Label>
-              <Input
-                id="accessCode"
-                type="password"
-                placeholder="Enter access code"
-                value={accessCode}
-                onChange={(e) => setAccessCode(e.target.value)}
-                className="text-center text-lg tracking-widest"
-              />
-            </div>
-            <Button
-              onClick={handleCodeVerification}
-              className="w-full bg-blue-600 hover:bg-blue-700"
-              disabled={!accessCode}
-            >
-              Verify Access
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
   return (
-    <div className="p-6 space-y-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div className="p-6 space-y-6 bg-gradient-to-br from-orange-50 to-amber-100 min-h-screen">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Register Student</h1>
           <p className="text-gray-600 mt-1">Add a new student to the system</p>
-        </div>
-        <div className="flex items-center space-x-2 text-green-600">
-          <CheckCircle className="w-5 h-5" />
-          <span className="text-sm font-medium">Access Verified</span>
         </div>
       </div>
 
       <Card className="bg-white shadow-xl border-0">
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
-            <UserPlus className="w-6 h-6 text-blue-600" />
+            <UserPlus className="w-6 h-6 text-orange-600" />
             <span>Student Registration Form</span>
           </CardTitle>
           <CardDescription>Fill in all required information to register a new student</CardDescription>
@@ -247,7 +183,9 @@ export default function RegisterStudentPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Student Information */}
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-900 border-b border-blue-200 pb-2">Student Information</h3>
+              <h3 className="text-lg font-semibold text-gray-900 border-b border-orange-200 pb-2">
+                Student Information
+              </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="name">Full Name *</Label>
@@ -440,7 +378,7 @@ export default function RegisterStudentPage() {
                     </div>
                   )}
 
-                  {parentSearch && parents.length === 0 && !loading && (
+                  {parentSearch && parents.length === 0 && !parentLoading && (
                     <div className="text-center py-4 text-gray-500">
                       No parents found matching "{parentSearch}". Try a different search term or create a new parent.
                     </div>
@@ -486,8 +424,8 @@ export default function RegisterStudentPage() {
               )}
             </div>
 
-            <Alert className="border-blue-200 bg-blue-50">
-              <AlertDescription className="text-blue-800">
+            <Alert className="border-orange-200 bg-orange-50">
+              <AlertDescription className="text-orange-800">
                 <strong>Note:</strong>{" "}
                 {showNewParent
                   ? "A new parent account will be created with the provided credentials."
@@ -502,7 +440,7 @@ export default function RegisterStudentPage() {
               <Button
                 type="submit"
                 disabled={isSubmitting || loading || (!showNewParent && !formData.parentId)}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-orange-600 hover:bg-orange-700"
               >
                 {isSubmitting ? "Registering..." : "Register Student"}
               </Button>

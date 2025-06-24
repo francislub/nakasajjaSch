@@ -31,7 +31,8 @@ export async function GET(request: Request) {
       },
     }
 
-    if (classId) {
+    // Fix: Only add classId filter if it's not "all" and is a valid ObjectId
+    if (classId && classId !== "all" && classId.length === 24) {
       whereClause.student.classId = classId
     }
 

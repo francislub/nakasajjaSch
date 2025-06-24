@@ -491,11 +491,11 @@ export default function AdminAttendanceReportsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Classes</SelectItem>
-            {classes.map((cls) => (
+            {classes?.map((cls) => (
               <SelectItem key={cls.id} value={cls.id}>
                 {cls.name}
               </SelectItem>
-            ))}
+            )) || []}
           </SelectContent>
         </Select>
         <Popover>

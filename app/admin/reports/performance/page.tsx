@@ -566,11 +566,11 @@ export default function AdminPerformanceReportsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Classes</SelectItem>
-            {classes.map((cls) => (
+            {classes?.map((cls) => (
               <SelectItem key={cls.id} value={cls.id}>
                 {cls.name}
               </SelectItem>
-            ))}
+            )) || []}
           </SelectContent>
         </Select>
         <Select value={selectedSubject} onValueChange={setSelectedSubject}>
@@ -579,11 +579,11 @@ export default function AdminPerformanceReportsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Subjects</SelectItem>
-            {subjects.map((subject) => (
+            {subjects?.map((subject) => (
               <SelectItem key={subject.id} value={subject.id}>
                 {subject.name}
               </SelectItem>
-            ))}
+            )) || []}
           </SelectContent>
         </Select>
         <Select value={performanceFilter} onValueChange={setPerformanceFilter}>

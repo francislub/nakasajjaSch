@@ -111,10 +111,11 @@ export default function AdminStudentReportsPage() {
       const response = await fetch("/api/classes")
       if (response.ok) {
         const data = await response.json()
-        setClasses(data.classes)
+        setClasses(data || []) // Handle case where data might be undefined
       }
     } catch (error) {
       console.error("Error fetching classes:", error)
+      setClasses([]) // Set empty array on error
     }
   }
 
@@ -514,11 +515,13 @@ export default function AdminStudentReportsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Classes</SelectItem>
-            {classes.map((cls) => (
-              <SelectItem key={cls.id} value={cls.id}>
-                {cls.name}
-              </SelectItem>
-            ))}
+            {classes &&
+              classes.length > 0 &&
+              classes.map((cls) => (
+                <SelectItem key={cls.id} value={cls.id}>
+                  {cls.name}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
       </div>

@@ -8,8 +8,20 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
-import { Search, Download, Eye, FileText, CheckCircle, XCircle, Calendar, BarChart3 } from "lucide-react"
+import {
+  Search,
+  Download,
+  Eye,
+  FileText,
+  CheckCircle,
+  XCircle,
+  Calendar,
+  BarChart3,
+  Users,
+  GraduationCap,
+} from "lucide-react"
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement } from "chart.js"
 import { Bar, Doughnut } from "react-chartjs-2"
 
@@ -64,6 +76,19 @@ interface ReportStats {
   }>
 }
 
+interface ClassReportCards {
+  classInfo: {
+    name: string
+    classTeacher?: {
+      name: string
+    }
+  }
+  reportCards: ReportCard[]
+  totalStudents: number
+  approvedReports: number
+  pendingReports: number
+}
+
 export default function AdminReportCardsPage() {
   const [reportCards, setReportCards] = useState<ReportCard[]>([])
   const [classes, setClasses] = useState<Class[]>([])
@@ -72,6 +97,10 @@ export default function AdminReportCardsPage() {
   const [selectedClass, setSelectedClass] = useState<string>("")
   const [statusFilter, setStatusFilter] = useState<string>("")
   const [isLoading, setIsLoading] = useState(true)
+  const [selectedReportCard, setSelectedReportCard] = useState<ReportCard | null>(null)
+  const [classReportCards, setClassReportCards] = useState<ClassReportCards | null>(null)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [isClassPreviewOpen, setIsClassPreviewOpen] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -83,9 +112,9 @@ export default function AdminReportCardsPage() {
   const fetchReportCards = async () => {
     try {
       const params = new URLSearchParams()
-      if (selectedClass) params.append("classId", selectedClass)
+      if (selectedClass && selectedClass !== "all") params.append("classId", selectedClass)
       if (searchTerm) params.append("search", searchTerm)
-      if (statusFilter) params.append("status", statusFilter)
+      if (statusFilter && statusFilter !== "all") params.append("status", statusFilter)
 
       const response = await fetch(`/api/admin/reports/cards?${params}`)
       if (response.ok) {
@@ -104,10 +133,13 @@ export default function AdminReportCardsPage() {
       const response = await fetch("/api/classes")
       if (response.ok) {
         const data = await response.json()
-        setClasses(data.classes)
+        setClasses(data.classes || [])
+      } else {
+        setClasses([])
       }
     } catch (error) {
       console.error("Error fetching classes:", error)
+      setClasses([])
     }
   }
 
@@ -120,6 +152,42 @@ export default function AdminReportCardsPage() {
       }
     } catch (error) {
       console.error("Error fetching stats:", error)
+    }
+  }
+
+  const fetchReportCardPreview = async (reportId: string) => {
+    try {
+      const response = await fetch(`/api/admin/reports/cards/preview?reportId=${reportId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setSelectedReportCard(data.reportCard)
+        setIsPreviewOpen(true)
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load report card preview",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const fetchClassReportCards = async (classId: string) => {
+    if (!classId || classId === "all") return
+
+    try {
+      const response = await fetch(`/api/admin/reports/cards/class?classId=${classId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setClassReportCards(data)
+        setIsClassPreviewOpen(true)
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load class report cards",
+        variant: "destructive",
+      })
     }
   }
 
@@ -166,6 +234,48 @@ export default function AdminReportCardsPage() {
       toast({
         title: "Error",
         description: "Failed to download report card",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDownloadClassReports = async (classId: string) => {
+    if (!classId || classId === "all") {
+      toast({
+        title: "Error",
+        description: "Please select a specific class",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const response = await fetch("/api/admin/reports/cards/download-class", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classId }),
+      })
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `class-report-cards-${Date.now()}.csv`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+
+        toast({
+          title: "Success",
+          description: "Class report cards downloaded successfully",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to download class reports",
         variant: "destructive",
       })
     }
@@ -267,10 +377,31 @@ export default function AdminReportCardsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Report Cards Management</h1>
           <p className="text-gray-600 mt-2">View, approve, and download student report cards</p>
         </div>
-        <Button onClick={handleBulkDownload} className="bg-blue-600 hover:bg-blue-700">
-          <Download className="w-4 h-4 mr-2" />
-          Bulk Download
-        </Button>
+        <div className="flex gap-2">
+          {selectedClass && selectedClass !== "all" && (
+            <>
+              <Button
+                onClick={() => fetchClassReportCards(selectedClass)}
+                variant="outline"
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Preview Class
+              </Button>
+              <Button
+                onClick={() => handleDownloadClassReports(selectedClass)}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                <GraduationCap className="w-4 h-4 mr-2" />
+                Download Class
+              </Button>
+            </>
+          )}
+          <Button onClick={handleBulkDownload} className="bg-blue-600 hover:bg-blue-700">
+            <Download className="w-4 h-4 mr-2" />
+            Bulk Download
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -494,7 +625,7 @@ export default function AdminReportCardsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex space-x-2">
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" onClick={() => fetchReportCardPreview(report.id)}>
                         <Eye className="w-4 h-4" />
                       </Button>
                       {!report.isApproved && (
@@ -522,6 +653,277 @@ export default function AdminReportCardsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Individual Report Card Preview Dialog */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Report Card Preview</DialogTitle>
+            <DialogDescription>
+              {selectedReportCard && `${selectedReportCard.student.name} - ${selectedReportCard.student.class.name}`}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedReportCard && (
+            <div className="space-y-6 p-4">
+              {/* Student Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h3 className="font-semibold text-lg mb-2">Student Information</h3>
+                  <p>
+                    <strong>Name:</strong> {selectedReportCard.student.name}
+                  </p>
+                  <p>
+                    <strong>Class:</strong> {selectedReportCard.student.class.name}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg mb-2">Parent Information</h3>
+                  {selectedReportCard.student.parent ? (
+                    <>
+                      <p>
+                        <strong>Name:</strong> {selectedReportCard.student.parent.name}
+                      </p>
+                      <p>
+                        <strong>Email:</strong> {selectedReportCard.student.parent.email}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-gray-500">No parent assigned</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Behavioral Assessment */}
+              <div>
+                <h3 className="font-semibold text-lg mb-4">Behavioral Assessment</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Discipline:</span>
+                      <Badge variant="outline">{selectedReportCard.discipline}</Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Cleanliness:</span>
+                      <Badge variant="outline">{selectedReportCard.cleanliness}</Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Class Work Presentation:</span>
+                      <Badge variant="outline">{selectedReportCard.classWorkPresentation}</Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Adherence to School:</span>
+                      <Badge variant="outline">{selectedReportCard.adherenceToSchool}</Badge>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Co-Curricular Activities:</span>
+                      <Badge variant="outline">{selectedReportCard.coCurricularActivities}</Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Consideration to Others:</span>
+                      <Badge variant="outline">{selectedReportCard.considerationToOthers}</Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Speaking English:</span>
+                      <Badge variant="outline">{selectedReportCard.speakingEnglish}</Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Comments */}
+              <div>
+                <h3 className="font-semibold text-lg mb-4">Comments</h3>
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-medium">Class Teacher Comment:</h4>
+                    <p className="text-gray-700 bg-gray-50 p-3 rounded">
+                      {selectedReportCard.classTeacherComment || "No comment provided"}
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="font-medium">Headteacher Comment:</h4>
+                    <p className="text-gray-700 bg-gray-50 p-3 rounded">
+                      {selectedReportCard.headteacherComment || "No comment provided"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className="flex justify-between items-center pt-4 border-t">
+                <div>
+                  <span className="font-medium">Status: </span>
+                  <Badge
+                    className={
+                      selectedReportCard.isApproved ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"
+                    }
+                  >
+                    {selectedReportCard.isApproved ? "Approved" : "Pending"}
+                  </Badge>
+                </div>
+                <div className="flex gap-2">
+                  {!selectedReportCard.isApproved && (
+                    <Button
+                      onClick={() => {
+                        handleApproveReport(selectedReportCard.id)
+                        setIsPreviewOpen(false)
+                      }}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Approve
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => {
+                      handleDownloadReport(selectedReportCard.student.id, selectedReportCard.id)
+                      setIsPreviewOpen(false)
+                    }}
+                    variant="outline"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Class Report Cards Preview Dialog */}
+      <Dialog open={isClassPreviewOpen} onOpenChange={setIsClassPreviewOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Class Report Cards Preview</DialogTitle>
+            <DialogDescription>
+              {classReportCards && `${classReportCards.classInfo.name} - ${classReportCards.totalStudents} Students`}
+            </DialogDescription>
+          </DialogHeader>
+          {classReportCards && (
+            <div className="space-y-6">
+              {/* Class Stats */}
+              <div className="grid grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold">{classReportCards.totalStudents}</div>
+                    <p className="text-sm text-gray-600">Total Students</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-green-600">{classReportCards.approvedReports}</div>
+                    <p className="text-sm text-gray-600">Approved Reports</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-orange-600">{classReportCards.pendingReports}</div>
+                    <p className="text-sm text-gray-600">Pending Reports</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Class Teacher Info */}
+              {classReportCards.classInfo.classTeacher && (
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h3 className="font-semibold">Class Teacher: {classReportCards.classInfo.classTeacher.name}</h3>
+                </div>
+              )}
+
+              {/* Students Table */}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Student</TableHead>
+                    <TableHead>Parent</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {classReportCards.reportCards.map((report) => (
+                    <TableRow key={report.id}>
+                      <TableCell>
+                        <div className="flex items-center space-x-3">
+                          <Avatar className="w-8 h-8">
+                            <AvatarImage src={report.student.photo || "/placeholder.svg"} alt={report.student.name} />
+                            <AvatarFallback>
+                              {report.student.name
+                                .split(" ")
+                                .map((n) => n[0])
+                                .join("")
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="font-medium">{report.student.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {report.student.parent ? (
+                          <div>
+                            <div className="font-medium text-sm">{report.student.parent.name}</div>
+                            <div className="text-xs text-gray-500">{report.student.parent.email}</div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-sm">No parent</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={
+                            report.isApproved ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"
+                          }
+                        >
+                          {report.isApproved ? "Approved" : "Pending"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex space-x-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedReportCard(report)
+                              setIsClassPreviewOpen(false)
+                              setIsPreviewOpen(true)
+                            }}
+                          >
+                            <Eye className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDownloadReport(report.student.id, report.id)}
+                          >
+                            <Download className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {/* Download All Button */}
+              <div className="flex justify-end pt-4 border-t">
+                <Button
+                  onClick={() => {
+                    handleDownloadClassReports(selectedClass)
+                    setIsClassPreviewOpen(false)
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download All Class Reports
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
