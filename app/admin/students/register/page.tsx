@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { UserPlus, Upload, Lock, CheckCircle } from "lucide-react"
+import { UserPlus, Lock, CheckCircle, Plus, Search } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 
 interface Class {
   id: string
@@ -23,13 +25,27 @@ interface Term {
   name: string
 }
 
+interface Parent {
+  id: string
+  name: string
+  email: string
+  children: Array<{
+    id: string
+    name: string
+    class: { name: string }
+  }>
+}
+
 export default function RegisterStudentPage() {
   const [isCodeVerified, setIsCodeVerified] = useState(false)
   const [accessCode, setAccessCode] = useState("")
   const [classes, setClasses] = useState<Class[]>([])
   const [terms, setTerms] = useState<Term[]>([])
+  const [parents, setParents] = useState<Parent[]>([])
   const [loading, setLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [parentSearch, setParentSearch] = useState("")
+  const [showNewParent, setShowNewParent] = useState(false)
   const { toast } = useToast()
   const router = useRouter()
 
@@ -40,6 +56,8 @@ export default function RegisterStudentPage() {
     classId: "",
     termId: "",
     photo: "",
+    parentId: "",
+    // New parent fields
     parentName: "",
     parentEmail: "",
     parentPassword: "",
@@ -50,6 +68,12 @@ export default function RegisterStudentPage() {
       fetchData()
     }
   }, [isCodeVerified])
+
+  useEffect(() => {
+    if (parentSearch && isCodeVerified) {
+      fetchParents()
+    }
+  }, [parentSearch, isCodeVerified])
 
   const handleCodeVerification = () => {
     if (accessCode === "12345") {
@@ -72,10 +96,11 @@ export default function RegisterStudentPage() {
     try {
       const [classesResponse, termsResponse] = await Promise.all([fetch("/api/classes"), fetch("/api/terms")])
 
-      const [classesData, termsData] = await Promise.all([classesResponse.json(), termsResponse.json()])
-
-      setClasses(classesData)
-      setTerms(termsData)
+      if (classesResponse.ok && termsResponse.ok) {
+        const [classesData, termsData] = await Promise.all([classesResponse.json(), termsResponse.json()])
+        setClasses(classesData)
+        setTerms(termsData)
+      }
     } catch (error) {
       toast({
         title: "Error",
@@ -87,15 +112,41 @@ export default function RegisterStudentPage() {
     }
   }
 
+  const fetchParents = async () => {
+    if (!parentSearch.trim()) {
+      setParents([])
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/users/parents?search=${encodeURIComponent(parentSearch.trim())}&limit=10`)
+      if (response.ok) {
+        const data = await response.json()
+        setParents(data.parents || [])
+      } else {
+        console.error("Failed to fetch parents:", response.statusText)
+        setParents([])
+      }
+    } catch (error) {
+      console.error("Error fetching parents:", error)
+      setParents([])
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
     try {
+      const submitData = {
+        ...formData,
+        createNewParent: showNewParent,
+      }
+
       const response = await fetch("/api/students", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(submitData),
       })
 
       if (response.ok) {
@@ -118,6 +169,14 @@ export default function RegisterStudentPage() {
       setIsSubmitting(false)
     }
   }
+
+  const selectParent = (parent: Parent) => {
+    setFormData({ ...formData, parentId: parent.id })
+    setShowNewParent(false)
+    setParentSearch("")
+  }
+
+  const selectedParent = parents.find((p) => p.id === formData.parentId)
 
   if (!isCodeVerified) {
     return (
@@ -194,7 +253,6 @@ export default function RegisterStudentPage() {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
-                    className="border-gray-300 focus:border-blue-500"
                   />
                 </div>
                 <div>
@@ -208,7 +266,6 @@ export default function RegisterStudentPage() {
                     required
                     min="3"
                     max="18"
-                    className="border-gray-300 focus:border-blue-500"
                   />
                 </div>
                 <div>
@@ -217,7 +274,7 @@ export default function RegisterStudentPage() {
                     value={formData.gender}
                     onValueChange={(value) => setFormData({ ...formData, gender: value })}
                   >
-                    <SelectTrigger className="border-gray-300 focus:border-blue-500">
+                    <SelectTrigger>
                       <SelectValue placeholder="Select gender" />
                     </SelectTrigger>
                     <SelectContent>
@@ -232,7 +289,7 @@ export default function RegisterStudentPage() {
                     value={formData.classId}
                     onValueChange={(value) => setFormData({ ...formData, classId: value })}
                   >
-                    <SelectTrigger className="border-gray-300 focus:border-blue-500">
+                    <SelectTrigger>
                       <SelectValue placeholder="Select class" />
                     </SelectTrigger>
                     <SelectContent>
@@ -250,7 +307,7 @@ export default function RegisterStudentPage() {
                     value={formData.termId}
                     onValueChange={(value) => setFormData({ ...formData, termId: value })}
                   >
-                    <SelectTrigger className="border-gray-300 focus:border-blue-500">
+                    <SelectTrigger>
                       <SelectValue placeholder="Select term" />
                     </SelectTrigger>
                     <SelectContent>
@@ -264,83 +321,185 @@ export default function RegisterStudentPage() {
                 </div>
                 <div>
                   <Label htmlFor="photo">Photo URL (Optional)</Label>
-                  <div className="flex space-x-2">
-                    <Input
-                      id="photo"
-                      placeholder="Enter photo URL"
-                      value={formData.photo}
-                      onChange={(e) => setFormData({ ...formData, photo: e.target.value })}
-                      className="border-gray-300 focus:border-blue-500"
-                    />
-                    <Button type="button" variant="outline" size="icon">
-                      <Upload className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  <Input
+                    id="photo"
+                    placeholder="Enter photo URL"
+                    value={formData.photo}
+                    onChange={(e) => setFormData({ ...formData, photo: e.target.value })}
+                  />
                 </div>
               </div>
             </div>
 
-            {/* Parent Information */}
+            <Separator />
+
+            {/* Parent Selection */}
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-900 border-b border-blue-200 pb-2">Parent Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="parentName">Parent Name *</Label>
-                  <Input
-                    id="parentName"
-                    placeholder="Enter parent's full name"
-                    value={formData.parentName}
-                    onChange={(e) => setFormData({ ...formData, parentName: e.target.value })}
-                    required
-                    className="border-gray-300 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="parentEmail">Parent Email *</Label>
-                  <Input
-                    id="parentEmail"
-                    type="email"
-                    placeholder="Enter parent's email"
-                    value={formData.parentEmail}
-                    onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
-                    required
-                    className="border-gray-300 focus:border-blue-500"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Label htmlFor="parentPassword">Parent Password *</Label>
-                  <Input
-                    id="parentPassword"
-                    type="password"
-                    placeholder="Create password for parent login"
-                    value={formData.parentPassword}
-                    onChange={(e) => setFormData({ ...formData, parentPassword: e.target.value })}
-                    required
-                    minLength={6}
-                    className="border-gray-300 focus:border-blue-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Password must be at least 6 characters long</p>
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Parent Information</h3>
+                <div className="flex space-x-2">
+                  <Button
+                    type="button"
+                    variant={!showNewParent ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setShowNewParent(false)}
+                  >
+                    <Search className="w-4 h-4 mr-2" />
+                    Select Existing
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={showNewParent ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setShowNewParent(true)}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create New
+                  </Button>
                 </div>
               </div>
+
+              {!showNewParent ? (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="parentSearch">Search for Parent</Label>
+                    <Input
+                      id="parentSearch"
+                      placeholder="Type parent name or email to search..."
+                      value={parentSearch}
+                      onChange={(e) => setParentSearch(e.target.value)}
+                    />
+                  </div>
+
+                  {selectedParent && (
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-green-900">{selectedParent.name}</h4>
+                          <p className="text-sm text-green-700">{selectedParent.email}</p>
+                          {selectedParent.children.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {selectedParent.children.map((child) => (
+                                <Badge key={child.id} variant="secondary" className="text-xs">
+                                  {child.name} ({child.class.name})
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setFormData({ ...formData, parentId: "" })}
+                        >
+                          Change
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {parentSearch && parents.length > 0 && !selectedParent && (
+                    <div className="border border-gray-200 rounded-lg max-h-60 overflow-y-auto">
+                      {parents.map((parent) => (
+                        <div
+                          key={parent.id}
+                          className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          onClick={() => selectParent(parent)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="font-medium">{parent.name}</h4>
+                              <p className="text-sm text-gray-600">{parent.email}</p>
+                              {parent.children.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {parent.children.map((child) => (
+                                    <Badge key={child.id} variant="outline" className="text-xs">
+                                      {child.name}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <Button size="sm" variant="ghost">
+                              Select
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {parentSearch && parents.length === 0 && (
+                    <div className="text-center py-4 text-gray-500">
+                      <div className="animate-pulse">Searching...</div>
+                    </div>
+                  )}
+
+                  {parentSearch && parents.length === 0 && !loading && (
+                    <div className="text-center py-4 text-gray-500">
+                      No parents found matching "{parentSearch}". Try a different search term or create a new parent.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="parentName">Parent Name *</Label>
+                    <Input
+                      id="parentName"
+                      placeholder="Enter parent's full name"
+                      value={formData.parentName}
+                      onChange={(e) => setFormData({ ...formData, parentName: e.target.value })}
+                      required={showNewParent}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="parentEmail">Parent Email *</Label>
+                    <Input
+                      id="parentEmail"
+                      type="email"
+                      placeholder="Enter parent's email"
+                      value={formData.parentEmail}
+                      onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
+                      required={showNewParent}
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label htmlFor="parentPassword">Parent Password *</Label>
+                    <Input
+                      id="parentPassword"
+                      type="password"
+                      placeholder="Create password for parent login"
+                      value={formData.parentPassword}
+                      onChange={(e) => setFormData({ ...formData, parentPassword: e.target.value })}
+                      required={showNewParent}
+                      minLength={6}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Password must be at least 6 characters long</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             <Alert className="border-blue-200 bg-blue-50">
               <AlertDescription className="text-blue-800">
-                <strong>Note:</strong> Parent login credentials will be created automatically. The parent will be able
-                to log in using the provided email and password to view their child's progress.
+                <strong>Note:</strong>{" "}
+                {showNewParent
+                  ? "A new parent account will be created with the provided credentials."
+                  : "The student will be linked to the selected existing parent account."}
               </AlertDescription>
             </Alert>
 
             <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.back()}
-                className="border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
+              <Button type="button" variant="outline" onClick={() => router.back()}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting || loading} className="bg-blue-600 hover:bg-blue-700 px-8">
+              <Button
+                type="submit"
+                disabled={isSubmitting || loading || (!showNewParent && !formData.parentId)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
                 {isSubmitting ? "Registering..." : "Register Student"}
               </Button>
             </div>

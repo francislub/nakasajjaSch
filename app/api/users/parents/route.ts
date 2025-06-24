@@ -12,18 +12,25 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const { searchParams } = new URL(request.url)
+    const search = searchParams.get("search") || ""
+    const limit = Number.parseInt(searchParams.get("limit") || "50")
+
+    const whereClause = {
+      role: "PARENT" as const,
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: "insensitive" as const } },
+          { email: { contains: search, mode: "insensitive" as const } },
+        ],
+      }),
+    }
+
     const parents = await prisma.user.findMany({
-      where: { role: "PARENT" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        createdAt: true,
+      where: whereClause,
+      include: {
         children: {
-          select: {
-            id: true,
-            name: true,
+          include: {
             class: {
               select: {
                 name: true,
@@ -32,15 +39,14 @@ export async function GET(request: Request) {
           },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      take: limit,
+      orderBy: { name: "asc" },
     })
 
     return NextResponse.json(parents)
   } catch (error) {
     console.error("Error fetching parents:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to fetch parents" }, { status: 500 })
   }
 }
 

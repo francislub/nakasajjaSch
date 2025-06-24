@@ -34,6 +34,13 @@ interface DashboardStats {
 
 const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4"]
 
+const GRADIENT_COLORS = [
+  "from-blue-400 to-blue-600",
+  "from-green-400 to-green-600",
+  "from-orange-400 to-orange-600",
+  "from-purple-400 to-purple-600",
+]
+
 export function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats>({
     totalStudents: 0,
@@ -97,50 +104,58 @@ export function AdminDashboard() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+        <Card
+          className={`bg-gradient-to-br ${GRADIENT_COLORS[0]} text-white shadow-lg border-0 hover:shadow-xl transition-shadow`}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Students</CardTitle>
-            <GraduationCap className="h-4 w-4 text-blue-600" />
+            <CardTitle className="text-sm font-medium text-white">Total Students</CardTitle>
+            <GraduationCap className="h-4 w-4 text-white" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900">{stats.totalStudents}</div>
-            <p className="text-xs text-green-600 mt-1">
+            <div className="text-2xl font-bold text-white">{stats.totalStudents}</div>
+            <p className="text-xs text-white mt-1">
               <TrendingUp className="w-3 h-3 inline mr-1" />
               Active enrollment
             </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+        <Card
+          className={`bg-gradient-to-br ${GRADIENT_COLORS[1]} text-white shadow-lg border-0 hover:shadow-xl transition-shadow`}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Class Teachers</CardTitle>
-            <Users className="h-4 w-4 text-green-600" />
+            <CardTitle className="text-sm font-medium text-white">Class Teachers</CardTitle>
+            <Users className="h-4 w-4 text-white" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900">{stats.totalTeachers}</div>
-            <p className="text-xs text-gray-500 mt-1">Active teachers</p>
+            <div className="text-2xl font-bold text-white">{stats.totalTeachers}</div>
+            <p className="text-xs text-white mt-1">Active teachers</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+        <Card
+          className={`bg-gradient-to-br ${GRADIENT_COLORS[2]} text-white shadow-lg border-0 hover:shadow-xl transition-shadow`}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Classes</CardTitle>
-            <BookOpen className="h-4 w-4 text-orange-600" />
+            <CardTitle className="text-sm font-medium text-white">Classes</CardTitle>
+            <BookOpen className="h-4 w-4 text-white" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900">{stats.totalClasses}</div>
-            <p className="text-xs text-gray-500 mt-1">Active classes</p>
+            <div className="text-2xl font-bold text-white">{stats.totalClasses}</div>
+            <p className="text-xs text-white mt-1">Active classes</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+        <Card
+          className={`bg-gradient-to-br ${GRADIENT_COLORS[3]} text-white shadow-lg border-0 hover:shadow-xl transition-shadow`}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Attendance Rate</CardTitle>
-            <Calendar className="h-4 w-4 text-purple-600" />
+            <CardTitle className="text-sm font-medium text-white">Attendance Rate</CardTitle>
+            <Calendar className="h-4 w-4 text-white" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900">{stats.attendanceRate}%</div>
-            <p className="text-xs text-green-600 mt-1">
+            <div className="text-2xl font-bold text-white">{stats.attendanceRate}%</div>
+            <p className="text-xs text-white mt-1">
               <TrendingUp className="w-3 h-3 inline mr-1" />
               This week
             </p>
@@ -168,7 +183,8 @@ export function AdminDashboard() {
                   cy="50%"
                   labelLine={false}
                   label={({ name, students }) => `${name}: ${students}`}
-                  outerRadius={80}
+                  outerRadius={120}
+                  innerRadius={40}
                   fill="#8884d8"
                   dataKey="students"
                 >
@@ -198,9 +214,9 @@ export function AdminDashboard() {
                 <Line
                   type="monotone"
                   dataKey="students"
-                  stroke="#3B82F6"
+                  stroke="#22C55E"
                   strokeWidth={3}
-                  dot={{ fill: "#3B82F6", strokeWidth: 2, r: 6 }}
+                  dot={{ fill: "#22C55E", strokeWidth: 2, r: 6 }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -223,7 +239,7 @@ export function AdminDashboard() {
                 <XAxis dataKey="class" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="average" fill="#10B981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="average" fill="#A855F7" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -242,7 +258,7 @@ export function AdminDashboard() {
                 <XAxis dataKey="day" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="rate" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="rate" fill="#F472B6" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

@@ -11,14 +11,19 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get teacher's class
+    // Get teacher's assigned classes
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
+      include: {
+        assignedClasses: true,
+      },
     })
 
-    if (!teacher?.classId) {
+    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
       return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
     }
+
+    const teacherClass = teacher.assignedClasses[0]
 
     // Get active academic year
     const activeAcademicYear = await prisma.academicYear.findFirst({
@@ -32,7 +37,7 @@ export async function GET() {
     // Get students in teacher's class
     const students = await prisma.student.findMany({
       where: {
-        classId: teacher.classId,
+        classId: teacherClass.id,
         academicYearId: activeAcademicYear.id,
       },
       include: {

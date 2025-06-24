@@ -50,10 +50,15 @@ const teacherMenuItems = [
     icon: BookOpen,
   },
   {
-    title: "Student Assessment",
-    url: "/teacher/assessment",
+    title: "My Class",
+    url: "/teacher/classes",
     icon: FileText,
   },
+  // {
+  //   title: "Student Assessment",
+  //   url: "/teacher/assessment",
+  //   icon: FileText,
+  // },
   {
     title: "Class Reports",
     url: "/teacher/reports",

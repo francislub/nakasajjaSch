@@ -57,6 +57,19 @@ export function TeacherDashboard() {
     )
   }
 
+  const cardGradientClasses = [
+    "bg-gradient-to-br from-blue-100 to-blue-50",
+    "bg-gradient-to-br from-green-100 to-green-50",
+    "bg-gradient-to-br from-orange-100 to-orange-50",
+    "bg-gradient-to-br from-purple-100 to-purple-50",
+  ]
+
+  const chartColors = {
+    present: "#34D399",
+    absent: "#F87171",
+    average: "#6366F1",
+  }
+
   return (
     <div className="p-6 space-y-6 bg-gradient-to-br from-green-50 to-emerald-100 min-h-screen">
       <div className="flex items-center justify-between">
@@ -82,10 +95,10 @@ export function TeacherDashboard() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+        <Card className={`shadow-lg border-0 hover:shadow-xl transition-shadow ${cardGradientClasses[0]}`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">My Students</CardTitle>
-            <Users className="h-4 w-4 text-green-600" />
+            <Users className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">{stats.totalStudents}</div>
@@ -93,10 +106,10 @@ export function TeacherDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+        <Card className={`shadow-lg border-0 hover:shadow-xl transition-shadow ${cardGradientClasses[1]}`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Present Today</CardTitle>
-            <ClipboardCheck className="h-4 w-4 text-blue-600" />
+            <ClipboardCheck className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">{stats.presentToday}</div>
@@ -107,7 +120,7 @@ export function TeacherDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+        <Card className={`shadow-lg border-0 hover:shadow-xl transition-shadow ${cardGradientClasses[2]}`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Pending Marks</CardTitle>
             <BookOpen className="h-4 w-4 text-orange-600" />
@@ -118,7 +131,7 @@ export function TeacherDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+        <Card className={`shadow-lg border-0 hover:shadow-xl transition-shadow ${cardGradientClasses[3]}`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Assessments</CardTitle>
             <MessageSquare className="h-4 w-4 text-purple-600" />
@@ -145,8 +158,8 @@ export function TeacherDashboard() {
                 <XAxis dataKey="day" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="present" fill="#10B981" name="Present" />
-                <Bar dataKey="absent" fill="#EF4444" name="Absent" />
+                <Bar dataKey="present" fill={chartColors.present} name="Present" />
+                <Bar dataKey="absent" fill={chartColors.absent} name="Absent" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -165,7 +178,7 @@ export function TeacherDashboard() {
                 <XAxis dataKey="subject" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="average" fill="#059669" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="average" fill={chartColors.average} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

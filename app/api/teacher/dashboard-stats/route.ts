@@ -11,15 +11,23 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get teacher's class
+    // Get teacher's assigned classes
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
-      include: { class: true },
+      include: {
+        assignedClasses: {
+          include: {
+            students: true,
+          },
+        },
+      },
     })
 
-    if (!teacher?.classId) {
+    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
       return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
     }
+
+    const teacherClass = teacher.assignedClasses[0] // Get first assigned class
 
     // Get active academic year
     const activeAcademicYear = await prisma.academicYear.findFirst({
@@ -31,95 +39,69 @@ export async function GET() {
     }
 
     // Get statistics for teacher's class
-    const [
-      totalStudents,
-      todayAttendance,
-      pendingMarks,
-      completedAssessments,
-      weeklyAttendance,
-      subjectPerformance,
-      recentMarks,
-    ] = await Promise.all([
-      // Total students in teacher's class
-      prisma.student.count({
-        where: {
-          classId: teacher.classId,
-          academicYearId: activeAcademicYear.id,
-        },
-      }),
-
-      // Today's attendance
-      prisma.attendance.findMany({
-        where: {
-          classId: teacher.classId,
-          academicYearId: activeAcademicYear.id,
-          date: {
-            gte: new Date(new Date().setHours(0, 0, 0, 0)),
-            lt: new Date(new Date().setHours(23, 59, 59, 999)),
-          },
-        },
-      }),
-
-      // Pending marks (subjects without recent marks)
-      prisma.subject.count({
-        where: {
-          classId: teacher.classId,
-        },
-      }),
-
-      // Completed assessments (report cards)
-      prisma.reportCard.count({
-        where: {
-          student: {
-            classId: teacher.classId,
+    const [totalStudents, todayAttendance, pendingMarks, completedAssessments, weeklyAttendance, subjectPerformance] =
+      await Promise.all([
+        // Total students in teacher's class
+        prisma.student.count({
+          where: {
+            classId: teacherClass.id,
             academicYearId: activeAcademicYear.id,
           },
-        },
-      }),
+        }),
 
-      // Weekly attendance data
-      prisma.attendance.findMany({
-        where: {
-          classId: teacher.classId,
-          academicYearId: activeAcademicYear.id,
-          date: {
-            gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        // Today's attendance
+        prisma.attendance.findMany({
+          where: {
+            classId: teacherClass.id,
+            academicYearId: activeAcademicYear.id,
+            date: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0)),
+              lt: new Date(new Date().setHours(23, 59, 59, 999)),
+            },
           },
-        },
-      }),
+        }),
 
-      // Subject performance
-      prisma.mark.groupBy({
-        by: ["subjectId"],
-        where: {
-          classId: teacher.classId,
-          academicYearId: activeAcademicYear.id,
-          total: { not: null },
-        },
-        _avg: {
-          total: true,
-        },
-      }),
-
-      // Recent marks for trend
-      prisma.mark.findMany({
-        where: {
-          classId: teacher.classId,
-          academicYearId: activeAcademicYear.id,
-          total: { not: null },
-          createdAt: {
-            gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        // Pending marks (subjects without recent marks)
+        prisma.subject.count({
+          where: {
+            classId: teacherClass.id,
           },
-        },
-        include: {
-          subject: true,
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: 100,
-      }),
-    ])
+        }),
+
+        // Completed assessments (report cards)
+        prisma.reportCard.count({
+          where: {
+            student: {
+              classId: teacherClass.id,
+              academicYearId: activeAcademicYear.id,
+            },
+          },
+        }),
+
+        // Weekly attendance data
+        prisma.attendance.findMany({
+          where: {
+            classId: teacherClass.id,
+            academicYearId: activeAcademicYear.id,
+            date: {
+              gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+            },
+          },
+        }),
+
+        // Subject performance
+        prisma.mark.groupBy({
+          by: ["subjectId"],
+          where: {
+            classId: teacherClass.id,
+            academicYearId: activeAcademicYear.id,
+            total: { not: null },
+          },
+          _avg: {
+            total: true,
+          },
+        }),
+      ])
 
     // Calculate today's attendance
     const presentToday = todayAttendance.filter((record) => record.status === "PRESENT").length
@@ -132,7 +114,7 @@ export async function GET() {
       const dayName = date.toLocaleDateString("en-US", { weekday: "short" })
 
       const dayAttendance = weeklyAttendance.filter((record) => {
-        const recordDate = new Date(record.date)
+        const recordDate = new Date(record.date!)
         return recordDate.toDateString() === date.toDateString()
       })
 
@@ -146,7 +128,7 @@ export async function GET() {
     const subjectPerformanceData = await Promise.all(
       subjectPerformance.map(async (item) => {
         const subject = await prisma.subject.findUnique({
-          where: { id: item.subjectId },
+          where: { id: item.subjectId! },
           select: { name: true },
         })
         return {
@@ -164,7 +146,7 @@ export async function GET() {
       completedAssessments,
       weeklyAttendance: weeklyAttendanceData,
       subjectPerformance: subjectPerformanceData,
-      className: teacher.class?.name || "Unknown Class",
+      className: teacherClass?.name || "Unknown Class",
     }
 
     return NextResponse.json(stats)

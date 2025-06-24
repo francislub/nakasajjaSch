@@ -113,7 +113,7 @@ export default function SecretaryDashboard() {
 
       {/* Overview Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="bg-white shadow-lg border-0">
+        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Total Students</CardTitle>
             <Users className="h-4 w-4 text-orange-600" />
@@ -124,7 +124,7 @@ export default function SecretaryDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0">
+        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Classes</CardTitle>
             <GraduationCap className="h-4 w-4 text-blue-600" />
@@ -135,7 +135,7 @@ export default function SecretaryDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0">
+        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Subjects</CardTitle>
             <BookOpen className="h-4 w-4 text-green-600" />
@@ -146,7 +146,7 @@ export default function SecretaryDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white shadow-lg border-0">
+        <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Marks Entered</CardTitle>
             <TrendingUp className="h-4 w-4 text-purple-600" />
@@ -171,7 +171,7 @@ export default function SecretaryDashboard() {
           <CardContent>
             <div className="space-y-4">
               {stats.recentRegistrations.map((student) => (
-                <div key={student.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                <div key={student.id} className="flex items-center space-x-3 p-3 bg-orange-50 rounded-lg shadow-sm">
                   <Avatar className="w-10 h-10">
                     <AvatarImage src="/placeholder.svg" alt={student.name} />
                     <AvatarFallback>
@@ -215,12 +215,12 @@ export default function SecretaryDashboard() {
           <CardContent>
             <div className="space-y-3">
               {stats.studentsPerClass.map((classData, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div key={index} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg shadow-sm">
                   <div className="flex items-center space-x-2">
                     <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
                     <span className="font-medium text-gray-900">{classData.className}</span>
                   </div>
-                  <Badge variant="outline" className="font-semibold">
+                  <Badge variant="outline" className="font-semibold text-blue-600 border-blue-300">
                     {classData.studentCount} students
                   </Badge>
                 </div>
@@ -247,7 +247,7 @@ export default function SecretaryDashboard() {
             <Link href="/admin/students/register">
               <Button
                 variant="outline"
-                className="w-full h-20 flex flex-col space-y-2 border-orange-200 hover:bg-orange-50"
+                className="w-full h-20 flex flex-col items-center justify-center space-y-2 border-orange-300 hover:bg-orange-50 transition-colors duration-200"
               >
                 <Plus className="w-6 h-6 text-orange-600" />
                 <span>Register New Student</span>
@@ -256,7 +256,7 @@ export default function SecretaryDashboard() {
             <Link href="/secretary/marks">
               <Button
                 variant="outline"
-                className="w-full h-20 flex flex-col space-y-2 border-blue-200 hover:bg-blue-50"
+                className="w-full h-20 flex flex-col items-center justify-center space-y-2 border-blue-300 hover:bg-blue-50 transition-colors duration-200"
               >
                 <FileText className="w-6 h-6 text-blue-600" />
                 <span>Enter Student Marks</span>
@@ -265,7 +265,7 @@ export default function SecretaryDashboard() {
             <Link href="/admin/students">
               <Button
                 variant="outline"
-                className="w-full h-20 flex flex-col space-y-2 border-green-200 hover:bg-green-50"
+                className="w-full h-20 flex flex-col items-center justify-center space-y-2 border-green-300 hover:bg-green-50 transition-colors duration-200"
               >
                 <Eye className="w-6 h-6 text-green-600" />
                 <span>View All Students</span>
@@ -277,3 +277,5 @@ export default function SecretaryDashboard() {
     </div>
   )
 }
+
+export { SecretaryDashboard }

@@ -86,9 +86,13 @@ export default function ParentsPage() {
 
       const [parentsData, studentsData] = await Promise.all([parentsResponse.json(), studentsResponse.json()])
 
-      setParents(parentsData)
-      setStudents(studentsData)
+      // Ensure we have arrays
+      setParents(Array.isArray(parentsData) ? parentsData : [])
+      setStudents(Array.isArray(studentsData) ? studentsData : [])
     } catch (error) {
+      console.error("Error fetching data:", error)
+      setParents([])
+      setStudents([])
       toast({
         title: "Error",
         description: "Failed to fetch data",
@@ -216,16 +220,19 @@ export default function ParentsPage() {
     setIsViewDialogOpen(true)
   }
 
-  const filteredParents = parents.filter(
-    (parent) =>
-      parent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      parent.email.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  // Safe filtering with array check
+  const filteredParents = Array.isArray(parents)
+    ? parents.filter(
+        (parent) =>
+          parent.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          parent.email?.toLowerCase().includes(searchTerm.toLowerCase()),
+      )
+    : []
 
   // Get students without parents for assignment
-  const availableStudents = students.filter(
-    (student) => !parents.some((parent) => parent.children?.some((child) => child.id === student.id)),
-  )
+  const availableStudents = Array.isArray(students)
+    ? students.filter((student) => !parents.some((parent) => parent.children?.some((child) => child.id === student.id)))
+    : []
 
   if (loading) {
     return (

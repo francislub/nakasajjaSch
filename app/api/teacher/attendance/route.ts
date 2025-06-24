@@ -14,14 +14,19 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const date = searchParams.get("date")
 
-    // Get teacher's class
+    // Get teacher's assigned classes
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
+      include: {
+        assignedClasses: true,
+      },
     })
 
-    if (!teacher?.classId) {
+    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
       return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
     }
+
+    const teacherClass = teacher.assignedClasses[0]
 
     // Get active academic year
     const activeAcademicYear = await prisma.academicYear.findFirst({
@@ -39,7 +44,7 @@ export async function GET(request: Request) {
     // Get students and their attendance for the specified date
     const students = await prisma.student.findMany({
       where: {
-        classId: teacher.classId,
+        classId: teacherClass.id,
         academicYearId: activeAcademicYear.id,
       },
       include: {
@@ -75,14 +80,19 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { attendanceData, date } = body
 
-    // Get teacher's class
+    // Get teacher's assigned classes
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
+      include: {
+        assignedClasses: true,
+      },
     })
 
-    if (!teacher?.classId) {
+    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
       return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
     }
+
+    const teacherClass = teacher.assignedClasses[0]
 
     // Get active academic year and term
     const activeAcademicYear = await prisma.academicYear.findFirst({
@@ -106,7 +116,7 @@ export async function POST(request: Request) {
     // Delete existing attendance for the date
     await prisma.attendance.deleteMany({
       where: {
-        classId: teacher.classId,
+        classId: teacherClass.id,
         date: new Date(date),
       },
     })
@@ -114,7 +124,7 @@ export async function POST(request: Request) {
     // Create new attendance records
     const attendanceRecords = attendanceData.map((record: any) => ({
       studentId: record.studentId,
-      classId: teacher.classId,
+      classId: teacherClass.id,
       termId: activeTerm.id,
       academicYearId: activeAcademicYear.id,
       date: new Date(date),
