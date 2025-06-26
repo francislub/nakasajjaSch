@@ -53,7 +53,7 @@ export default function TeacherStudentsPage() {
       const response = await fetch("/api/teacher/students")
       if (response.ok) {
         const data = await response.json()
-        setStudents(data)
+        setStudents(Array.isArray(data.students) ? data.students : Array.isArray(data) ? data : [])
       } else {
         throw new Error("Failed to fetch students")
       }
@@ -63,16 +63,19 @@ export default function TeacherStudentsPage() {
         description: "Failed to fetch students",
         variant: "destructive",
       })
+      setStudents([]) // Ensure students is always an array
     } finally {
       setLoading(false)
     }
   }
 
-  const filteredStudents = students.filter(
-    (student) =>
-      student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.parent.name.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const filteredStudents = Array.isArray(students)
+    ? students.filter(
+        (student) =>
+          student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (student.parent?.name || "").toLowerCase().includes(searchTerm.toLowerCase()),
+      )
+    : []
 
   const handleViewStudent = (student: Student) => {
     setSelectedStudent(student)

@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
@@ -11,7 +11,15 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get teacher's assigned classes
+    const { searchParams } = new URL(request.url)
+    const classId = searchParams.get("classId")
+    const academicYearId = searchParams.get("academicYearId")
+
+    if (!classId) {
+      return NextResponse.json({ error: "Class ID is required" }, { status: 400 })
+    }
+
+    // Verify teacher has access to this class
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
       include: {
@@ -19,50 +27,32 @@ export async function GET() {
       },
     })
 
-    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
-      return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
+    const hasAccess = teacher?.assignedClasses?.some((cls) => cls.id === classId)
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Access denied to this class" }, { status: 403 })
     }
 
-    const teacherClass = teacher.assignedClasses[0]
-
-    // Get active academic year
-    const activeAcademicYear = await prisma.academicYear.findFirst({
-      where: { isActive: true },
-    })
-
-    if (!activeAcademicYear) {
-      return NextResponse.json({ error: "No active academic year found" }, { status: 404 })
+    const whereClause: any = {
+      classId,
     }
 
-    // Get students in teacher's class
+    if (academicYearId) {
+      whereClause.academicYearId = academicYearId
+    }
+
     const students = await prisma.student.findMany({
-      where: {
-        classId: teacherClass.id,
-        academicYearId: activeAcademicYear.id,
-      },
+      where: whereClause,
       include: {
-        class: true,
-        term: true,
+        class: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         parent: {
           select: {
             name: true,
             email: true,
-          },
-        },
-        marks: {
-          where: {
-            academicYearId: activeAcademicYear.id,
-          },
-          include: {
-            subject: true,
-          },
-        },
-        attendance: {
-          where: {
-            academicYearId: activeAcademicYear.id,
-            date: {
-              gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Last 30 days
-            },
           },
         },
       },
@@ -71,30 +61,9 @@ export async function GET() {
       },
     })
 
-    // Calculate attendance rate for each student
-    const studentsWithStats = students.map((student) => {
-      const totalAttendance = student.attendance.length
-      const presentDays = student.attendance.filter((record) => record.status === "PRESENT").length
-      const attendanceRate = totalAttendance > 0 ? Math.round((presentDays / totalAttendance) * 100) : 0
-
-      // Calculate average marks
-      const totalMarks = student.marks.filter((mark) => mark.total !== null)
-      const averageMark =
-        totalMarks.length > 0
-          ? Math.round(totalMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / totalMarks.length)
-          : 0
-
-      return {
-        ...student,
-        attendanceRate,
-        averageMark,
-        totalMarks: totalMarks.length,
-      }
-    })
-
-    return NextResponse.json(studentsWithStats)
+    return NextResponse.json({ students })
   } catch (error) {
-    console.error("Error fetching teacher's students:", error)
+    console.error("Error fetching students:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

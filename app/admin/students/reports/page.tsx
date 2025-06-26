@@ -1,7 +1,5 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,24 +7,18 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
-import { Search, Plus, Eye, Download, FileText, Users, CheckCircle, Clock } from "lucide-react"
+import { Search, Eye, Download, FileText, Users, CheckCircle, Clock, X, Check } from "lucide-react"
 
 interface Student {
   id: string
   name: string
   photo?: string
+  gender: string
   class: {
     id: string
     name: string
@@ -63,25 +55,14 @@ export default function AdminStudentReportsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedClass, setSelectedClass] = useState<string>("")
+  const [selectedClass, setSelectedClass] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(true)
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
+  const [selectedReport, setSelectedReport] = useState<ReportCard | null>(null)
+  const [isApprovalDialogOpen, setIsApprovalDialogOpen] = useState(false)
+  const [headteacherComment, setHeadteacherComment] = useState("")
   const { toast } = useToast()
-
-  const [reportForm, setReportForm] = useState({
-    studentId: "",
-    discipline: "",
-    cleanliness: "",
-    classWorkPresentation: "",
-    adherenceToSchool: "",
-    coCurricularActivities: "",
-    considerationToOthers: "",
-    speakingEnglish: "",
-    classTeacherComment: "",
-    headteacherComment: "",
-  })
 
   useEffect(() => {
     fetchStudents()
@@ -91,7 +72,7 @@ export default function AdminStudentReportsPage() {
   const fetchStudents = async () => {
     try {
       const params = new URLSearchParams()
-      if (selectedClass) params.append("classId", selectedClass)
+      if (selectedClass !== "all") params.append("classId", selectedClass)
       if (searchTerm) params.append("search", searchTerm)
 
       const response = await fetch(`/api/admin/students/reports?${params}`)
@@ -111,74 +92,65 @@ export default function AdminStudentReportsPage() {
       const response = await fetch("/api/classes")
       if (response.ok) {
         const data = await response.json()
-        setClasses(data || []) // Handle case where data might be undefined
+        setClasses(data || [])
       }
     } catch (error) {
       console.error("Error fetching classes:", error)
-      setClasses([]) // Set empty array on error
+      setClasses([])
     }
   }
 
-  const handleCreateReport = async (e: React.FormEvent) => {
-    e.preventDefault()
-
+  const handleApproveReport = async (reportId: string, approve: boolean) => {
     try {
-      const response = await fetch("/api/report-cards", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reportForm),
-      })
+      if (approve) {
+        // Update report with headteacher comment and approve
+        const response = await fetch(`/api/report-cards/${reportId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            headteacherComment,
+            isApproved: true,
+            approvedAt: new Date().toISOString(),
+          }),
+        })
 
-      if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Report card created successfully",
-        })
-        setIsCreateDialogOpen(false)
-        setReportForm({
-          studentId: "",
-          discipline: "",
-          cleanliness: "",
-          classWorkPresentation: "",
-          adherenceToSchool: "",
-          coCurricularActivities: "",
-          considerationToOthers: "",
-          speakingEnglish: "",
-          classTeacherComment: "",
-          headteacherComment: "",
-        })
-        fetchStudents()
+        if (response.ok) {
+          toast({
+            title: "Success",
+            description: "Report card approved successfully",
+          })
+        } else {
+          throw new Error("Failed to approve report card")
+        }
       } else {
-        throw new Error("Failed to create report card")
+        // Reject report card
+        const response = await fetch(`/api/report-cards/${reportId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            isApproved: false,
+            headteacherComment: headteacherComment || "Report card rejected by headteacher",
+          }),
+        })
+
+        if (response.ok) {
+          toast({
+            title: "Success",
+            description: "Report card rejected",
+          })
+        } else {
+          throw new Error("Failed to reject report card")
+        }
       }
+
+      setIsApprovalDialogOpen(false)
+      setHeadteacherComment("")
+      setSelectedReport(null)
+      fetchStudents()
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to create report card",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleApproveReport = async (reportId: string) => {
-    try {
-      const response = await fetch(`/api/report-cards/${reportId}/approve`, {
-        method: "POST",
-      })
-
-      if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Report card approved successfully",
-        })
-        fetchStudents()
-      } else {
-        throw new Error("Failed to approve report card")
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to approve report card",
+        description: "Failed to process report card",
         variant: "destructive",
       })
     }
@@ -207,13 +179,6 @@ export default function AdminStudentReportsPage() {
     }
   }
 
-  const getGradeOptions = () => [
-    { value: "A", label: "A - Very Good" },
-    { value: "B", label: "B - Good" },
-    { value: "C", label: "C - Fair" },
-    { value: "D", label: "D - Needs Improvement" },
-  ]
-
   const filteredStudents = students.filter((student) => student.name.toLowerCase().includes(searchTerm.toLowerCase()))
 
   if (isLoading) {
@@ -232,217 +197,16 @@ export default function AdminStudentReportsPage() {
     <div className="p-6 space-y-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Student Reports</h1>
-          <p className="text-gray-600 mt-2">Manage student report cards and assessments</p>
+          <h1 className="text-3xl font-bold text-gray-900">Report Card Management</h1>
+          <p className="text-gray-600 mt-2">Review and approve student report cards</p>
         </div>
-        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-blue-600 hover:bg-blue-700">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Report Card
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create New Report Card</DialogTitle>
-              <DialogDescription>Create a comprehensive report card for a student</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleCreateReport} className="space-y-4">
-              <div>
-                <Label htmlFor="student">Select Student</Label>
-                <Select
-                  value={reportForm.studentId}
-                  onValueChange={(value) => setReportForm({ ...reportForm, studentId: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a student" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {students.map((student) => (
-                      <SelectItem key={student.id} value={student.id}>
-                        {student.name} - {student.class.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="discipline">Discipline</Label>
-                  <Select
-                    value={reportForm.discipline}
-                    onValueChange={(value) => setReportForm({ ...reportForm, discipline: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select grade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getGradeOptions().map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="cleanliness">Cleanliness</Label>
-                  <Select
-                    value={reportForm.cleanliness}
-                    onValueChange={(value) => setReportForm({ ...reportForm, cleanliness: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select grade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getGradeOptions().map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="classWorkPresentation">Class Work Presentation</Label>
-                  <Select
-                    value={reportForm.classWorkPresentation}
-                    onValueChange={(value) => setReportForm({ ...reportForm, classWorkPresentation: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select grade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getGradeOptions().map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="adherenceToSchool">Adherence to School</Label>
-                  <Select
-                    value={reportForm.adherenceToSchool}
-                    onValueChange={(value) => setReportForm({ ...reportForm, adherenceToSchool: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select grade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getGradeOptions().map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="coCurricularActivities">Co-curricular Activities</Label>
-                  <Select
-                    value={reportForm.coCurricularActivities}
-                    onValueChange={(value) => setReportForm({ ...reportForm, coCurricularActivities: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select grade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getGradeOptions().map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="considerationToOthers">Consideration to Others</Label>
-                  <Select
-                    value={reportForm.considerationToOthers}
-                    onValueChange={(value) => setReportForm({ ...reportForm, considerationToOthers: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select grade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getGradeOptions().map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="speakingEnglish">Speaking English</Label>
-                <Select
-                  value={reportForm.speakingEnglish}
-                  onValueChange={(value) => setReportForm({ ...reportForm, speakingEnglish: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select grade" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {getGradeOptions().map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="classTeacherComment">Class Teacher Comment</Label>
-                <Textarea
-                  id="classTeacherComment"
-                  value={reportForm.classTeacherComment}
-                  onChange={(e) => setReportForm({ ...reportForm, classTeacherComment: e.target.value })}
-                  placeholder="Enter class teacher's comment..."
-                  rows={3}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="headteacherComment">Headteacher Comment</Label>
-                <Textarea
-                  id="headteacherComment"
-                  value={reportForm.headteacherComment}
-                  onChange={(e) => setReportForm({ ...reportForm, headteacherComment: e.target.value })}
-                  placeholder="Enter headteacher's comment..."
-                  rows={3}
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
-                  Create Report Card
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-white shadow-lg border-0">
+        <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-xl border-0">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+            <CardTitle className="text-sm font-medium flex items-center">
               <Users className="w-4 h-4 mr-2" />
               Total Students
             </CardTitle>
@@ -451,9 +215,9 @@ export default function AdminStudentReportsPage() {
             <div className="text-2xl font-bold">{students.length}</div>
           </CardContent>
         </Card>
-        <Card className="bg-white shadow-lg border-0">
+        <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-xl border-0">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+            <CardTitle className="text-sm font-medium flex items-center">
               <FileText className="w-4 h-4 mr-2" />
               Report Cards
             </CardTitle>
@@ -464,15 +228,15 @@ export default function AdminStudentReportsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-white shadow-lg border-0">
+        <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white shadow-xl border-0">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+            <CardTitle className="text-sm font-medium flex items-center">
               <CheckCircle className="w-4 h-4 mr-2" />
               Approved
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
+            <div className="text-2xl font-bold">
               {students.reduce(
                 (acc, student) => acc + student.reportCards.filter((report) => report.isApproved).length,
                 0,
@@ -480,15 +244,15 @@ export default function AdminStudentReportsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-white shadow-lg border-0">
+        <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white shadow-xl border-0">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+            <CardTitle className="text-sm font-medium flex items-center">
               <Clock className="w-4 h-4 mr-2" />
-              Pending
+              Pending Review
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
+            <div className="text-2xl font-bold">
               {students.reduce(
                 (acc, student) => acc + student.reportCards.filter((report) => !report.isApproved).length,
                 0,
@@ -530,7 +294,7 @@ export default function AdminStudentReportsPage() {
       <Card className="bg-white shadow-lg border-0">
         <CardHeader>
           <CardTitle>Student Report Cards</CardTitle>
-          <CardDescription>Manage and view student report cards</CardDescription>
+          <CardDescription>Review and approve student report cards submitted by teachers</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -590,7 +354,7 @@ export default function AdminStudentReportsPage() {
                               report.isApproved ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"
                             }
                           >
-                            {report.isApproved ? "Approved" : "Pending"}
+                            {report.isApproved ? "Approved" : "Pending Review"}
                           </Badge>
                         ))}
                       </div>
@@ -613,14 +377,30 @@ export default function AdminStudentReportsPage() {
                       {student.reportCards.map((report) => (
                         <div key={report.id} className="flex space-x-1">
                           {!report.isApproved && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleApproveReport(report.id)}
-                              className="text-green-600 hover:text-green-700"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedReport(report)
+                                  setIsApprovalDialogOpen(true)
+                                }}
+                                className="text-green-600 hover:text-green-700"
+                              >
+                                <Check className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedReport(report)
+                                  setIsApprovalDialogOpen(true)
+                                }}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </>
                           )}
                           <Button
                             variant="outline"
@@ -639,6 +419,107 @@ export default function AdminStudentReportsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Approval Dialog */}
+      <Dialog open={isApprovalDialogOpen} onOpenChange={setIsApprovalDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Review Report Card</DialogTitle>
+            <DialogDescription>Add your headteacher comment and approve or reject this report card</DialogDescription>
+          </DialogHeader>
+          {selectedReport && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">Discipline</Label>
+                  <Badge variant="outline" className="mt-1">
+                    {selectedReport.discipline}
+                  </Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">Cleanliness</Label>
+                  <Badge variant="outline" className="mt-1">
+                    {selectedReport.cleanliness}
+                  </Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">Class Work</Label>
+                  <Badge variant="outline" className="mt-1">
+                    {selectedReport.classWorkPresentation}
+                  </Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">School Adherence</Label>
+                  <Badge variant="outline" className="mt-1">
+                    {selectedReport.adherenceToSchool}
+                  </Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">Co-curricular</Label>
+                  <Badge variant="outline" className="mt-1">
+                    {selectedReport.coCurricularActivities}
+                  </Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">Consideration</Label>
+                  <Badge variant="outline" className="mt-1">
+                    {selectedReport.considerationToOthers}
+                  </Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">Speaking English</Label>
+                  <Badge variant="outline" className="mt-1">
+                    {selectedReport.speakingEnglish}
+                  </Badge>
+                </div>
+              </div>
+
+              {selectedReport.classTeacherComment && (
+                <div>
+                  <Label className="text-sm font-medium text-gray-600">Class Teacher Comment</Label>
+                  <p className="mt-1 p-3 bg-gray-50 rounded-lg text-sm">{selectedReport.classTeacherComment}</p>
+                </div>
+              )}
+
+              <div>
+                <Label htmlFor="headteacherComment">Headteacher Comment</Label>
+                <Textarea
+                  id="headteacherComment"
+                  value={headteacherComment}
+                  onChange={(e) => setHeadteacherComment(e.target.value)}
+                  placeholder="Enter your comment as headteacher..."
+                  rows={4}
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsApprovalDialogOpen(false)
+                    setHeadteacherComment("")
+                    setSelectedReport(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={() => handleApproveReport(selectedReport.id, false)} variant="destructive">
+                  <X className="w-4 h-4 mr-2" />
+                  Reject
+                </Button>
+                <Button
+                  onClick={() => handleApproveReport(selectedReport.id, true)}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Check className="w-4 h-4 mr-2" />
+                  Approve
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* View Student Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
@@ -679,7 +560,7 @@ export default function AdminStudentReportsPage() {
                       <Badge
                         className={report.isApproved ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"}
                       >
-                        {report.isApproved ? "Approved" : "Pending Approval"}
+                        {report.isApproved ? "Approved" : "Pending Review"}
                       </Badge>
                     </CardTitle>
                     <CardDescription>
@@ -745,7 +626,7 @@ export default function AdminStudentReportsPage() {
                     {report.headteacherComment && (
                       <div>
                         <Label className="text-sm font-medium text-gray-600">Headteacher Comment</Label>
-                        <p className="mt-1 p-3 bg-gray-50 rounded-lg text-sm">{report.headteacherComment}</p>
+                        <p className="mt-1 p-3 bg-blue-50 rounded-lg text-sm">{report.headteacherComment}</p>
                       </div>
                     )}
                   </CardContent>

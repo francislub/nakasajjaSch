@@ -23,7 +23,6 @@ export async function GET(request: NextRequest) {
               select: {
                 name: true,
                 email: true,
-                phone: true,
               },
             },
             marks: {
