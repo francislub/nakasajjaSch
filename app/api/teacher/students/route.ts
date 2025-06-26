@@ -12,47 +12,113 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const classId = searchParams.get("classId")
-    const academicYearId = searchParams.get("academicYearId")
+    const termId = searchParams.get("termId")
 
-    if (!classId) {
-      return NextResponse.json({ error: "Class ID is required" }, { status: 400 })
+    // Get current academic year
+    const currentAcademicYear = await prisma.academicYear.findFirst({
+      where: { isActive: true },
+    })
+
+    if (!currentAcademicYear) {
+      return NextResponse.json({ error: "No active academic year found" }, { status: 400 })
     }
 
-    // Verify teacher has access to this class
+    // Get teacher's assigned classes
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
       include: {
-        assignedClasses: true,
+        assignedClasses: {
+          where: {
+            academicYearId: currentAcademicYear.id,
+          },
+          select: {
+            id: true,
+            name: true,
+            // level: true,
+          },
+        },
       },
     })
 
-    const hasAccess = teacher?.assignedClasses?.some((cls) => cls.id === classId)
-    if (!hasAccess) {
-      return NextResponse.json({ error: "Access denied to this class" }, { status: 403 })
+    if (!teacher?.assignedClasses?.length) {
+      return NextResponse.json({ error: "No classes assigned to teacher" }, { status: 400 })
     }
 
-    const whereClause: any = {
-      classId,
+    const classIds = teacher.assignedClasses.map((cls) => cls.id)
+
+    // Build marks filter
+    const marksWhere: any = {
+      academicYearId: currentAcademicYear.id,
+      student: {
+        classId: { in: classIds },
+      },
     }
 
-    if (academicYearId) {
-      whereClause.academicYearId = academicYearId
+    if (termId && termId !== "all") {
+      marksWhere.termId = termId
     }
 
+    // Build attendance filter
+    const attendanceWhere: any = {
+      academicYearId: currentAcademicYear.id,
+      student: {
+        classId: { in: classIds },
+      },
+    }
+
+    if (termId && termId !== "all") {
+      attendanceWhere.termId = termId
+    }
+
+    // Fetch students with comprehensive data
     const students = await prisma.student.findMany({
-      where: whereClause,
+      where: {
+        classId: { in: classIds },
+      },
       include: {
         class: {
           select: {
             id: true,
             name: true,
+            // level: true,
           },
         },
         parent: {
           select: {
+            id: true,
             name: true,
             email: true,
+          },
+        },
+        marks: {
+          where: marksWhere,
+          include: {
+            subject: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+            term: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: [{ term: { name: "asc" } }, { subject: { name: "asc" } }],
+        },
+        attendance: {
+          where: attendanceWhere,
+          select: {
+            id: true,
+            date: true,
+            status: true,
+            // remarks: true,
+          },
+          orderBy: {
+            date: "desc",
           },
         },
       },
@@ -61,7 +127,50 @@ export async function GET(request: Request) {
       },
     })
 
-    return NextResponse.json({ students })
+    // Calculate statistics for each student
+    const studentsWithStats = students.map((student) => {
+      // Calculate attendance statistics
+      const totalAttendance = student.attendance.length
+      const presentCount = student.attendance.filter((att) => att.status === "PRESENT").length
+      const absentCount = student.attendance.filter((att) => att.status === "ABSENT").length
+      const lateCount = student.attendance.filter((att) => att.status === "LATE").length
+      const attendanceRate = totalAttendance > 0 ? Math.round((presentCount / totalAttendance) * 100) : 0
+
+      // Calculate academic performance
+      const validMarks = student.marks.filter((mark) => mark.total && mark.total > 0)
+      const averageMark =
+        validMarks.length > 0
+          ? Math.round(validMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / validMarks.length)
+          : 0
+
+      const highestMark = validMarks.length > 0 ? Math.max(...validMarks.map((mark) => mark.total || 0)) : 0
+      const lowestMark = validMarks.length > 0 ? Math.min(...validMarks.map((mark) => mark.total || 0)) : 0
+
+      // Get unique subjects
+      const uniqueSubjects = new Set(student.marks.map((mark) => mark.subject?.id).filter(Boolean))
+      const totalSubjects = uniqueSubjects.size
+
+      return {
+        ...student,
+        stats: {
+          attendanceRate,
+          averageMark,
+          highestMark,
+          lowestMark,
+          totalSubjects,
+          totalAttendanceDays: totalAttendance,
+          presentDays: presentCount,
+          absentDays: absentCount,
+          lateDays: lateCount,
+        },
+      }
+    })
+
+    return NextResponse.json({
+      students: studentsWithStats,
+      academicYear: currentAcademicYear,
+      classes: teacher.assignedClasses,
+    })
   } catch (error) {
     console.error("Error fetching students:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

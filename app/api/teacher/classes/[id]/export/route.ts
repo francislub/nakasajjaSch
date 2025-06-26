@@ -11,13 +11,26 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const classId = params.id
+    // Check if user is a teacher
+    if (session.user.role !== "CLASS_TEACHER" && session.user.role !== "HEAD_TEACHER") {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
 
-    // Verify teacher has access to this class
+    // Get current academic year
+    const currentAcademicYear = await prisma.academicYear.findFirst({
+      where: { isActive: true },
+    })
+
+    if (!currentAcademicYear) {
+      return NextResponse.json({ error: "No active academic year found" }, { status: 404 })
+    }
+
+    // Get class with students
     const classData = await prisma.class.findFirst({
       where: {
-        id: classId,
-        teacherId: session.user.id,
+        id: params.id,
+        classTeacherId: session.user.id,
+        academicYearId: currentAcademicYear.id,
       },
       include: {
         students: {
@@ -26,10 +39,12 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
               select: {
                 name: true,
                 email: true,
-                phone: true,
               },
             },
             marks: {
+              where: {
+                academicYearId: currentAcademicYear.id,
+              },
               include: {
                 subject: {
                   select: {
@@ -39,9 +54,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
               },
             },
             attendance: {
-              select: {
-                status: true,
-                date: true,
+              where: {
+                academicYearId: currentAcademicYear.id,
               },
             },
           },
@@ -53,49 +67,49 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: "Class not found" }, { status: 404 })
     }
 
-    // Generate CSV content
-    const csvHeaders = [
+    // Create CSV content
+    const headers = [
       "Student Name",
       "Gender",
       "Age",
       "Parent Name",
       "Parent Email",
-      "Parent Phone",
       "Average Score",
       "Attendance Rate",
       "Total Marks",
-      "Present Days",
-      "Total Days",
+      "Total Attendance Records",
     ]
 
     const csvRows = classData.students.map((student) => {
       const avgScore =
         student.marks.length > 0
-          ? Math.round(student.marks.reduce((sum, m) => sum + m.value, 0) / student.marks.length)
+          ? Math.round(
+              student.marks.reduce((sum, mark) => sum + (mark.bot || 0) + (mark.midterm || 0) + (mark.eot || 0), 0) /
+                (student.marks.length * 3),
+            )
           : 0
 
-      const presentDays = student.attendance.filter((a) => a.status === "PRESENT").length
-      const totalDays = student.attendance.length
-      const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0
+      const attendanceRate =
+        student.attendance.length > 0
+          ? Math.round(
+              (student.attendance.filter((a) => a.status === "PRESENT").length / student.attendance.length) * 100,
+            )
+          : 0
 
       return [
         student.name,
         student.gender,
-        student.age.toString(),
-        student.parent?.name || "N/A",
-        student.parent?.email || "N/A",
-        student.parent?.phone || "N/A",
+        student.age,
+        student.parent?.name || "",
+        student.parent?.email || "",
         `${avgScore}%`,
         `${attendanceRate}%`,
-        student.marks.length.toString(),
-        presentDays.toString(),
-        totalDays.toString(),
+        student.marks.length,
+        student.attendance.length,
       ]
     })
 
-    const csvContent = [csvHeaders.join(","), ...csvRows.map((row) => row.map((cell) => `"${cell}"`).join(","))].join(
-      "\n",
-    )
+    const csvContent = [headers.join(","), ...csvRows.map((row) => row.join(","))].join("\n")
 
     return new NextResponse(csvContent, {
       headers: {
@@ -105,6 +119,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     })
   } catch (error) {
     console.error("Error exporting class list:", error)
-    return NextResponse.json({ error: "Failed to export class list" }, { status: 500 })
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

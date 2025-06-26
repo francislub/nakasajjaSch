@@ -54,11 +54,11 @@ const teacherMenuItems = [
     url: "/teacher/classes",
     icon: FileText,
   },
-  {
-    title: "Student ",
-    url: "/teacher/assessment",
-    icon: FileText,
-  },
+  // {
+  //   title: "Student ",
+  //   url: "/teacher/assessment",
+  //   icon: FileText,
+  // },
   {
     title: "Class Reports",
     url: "/teacher/reports",
