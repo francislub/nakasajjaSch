@@ -29,11 +29,11 @@ const menuItems = [
     url: "/secretary/students",
     icon: Users,
   },
-  {
-    title: "Enter Marks",
-    url: "/secretary/marks",
-    icon: FileText,
-  },
+  // {
+  //   title: "Enter Marks",
+  //   url: "/secretary/marks",
+  //   icon: FileText,
+  // },
 ]
 
 export function SecretarySidebar() {

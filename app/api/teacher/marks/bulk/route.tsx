@@ -1,78 +1,54 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { prisma } from "@/lib/db"
 
-export async function POST(request: NextRequest) {
+export async function POST(req: Request) {
+  const session = await getServerSession(authOptions)
+
+  if (!session || !["CLASS_TEACHER", "SECRETARY", "ADMIN"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
-    const session = await getServerSession(authOptions)
-    if (!session || session.user.role !== "TEACHER") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const { marks } = await req.json()
 
-    const { marks } = await request.json()
-
-    if (!Array.isArray(marks) || marks.length === 0) {
+    if (!marks || !Array.isArray(marks) || marks.length === 0) {
       return NextResponse.json({ error: "Invalid marks data" }, { status: 400 })
     }
 
-    // Process marks in batches to avoid database overload
-    const results = []
+    // Validate each mark entry
     for (const mark of marks) {
-      const { studentId, subjectId, termId, assessment1, assessment2, assessment3, bot, eot, total, grade } = mark
-
-      // Check if mark already exists
-      const existingMark = await prisma.mark.findFirst({
-        where: {
-          studentId,
-          subjectId,
-          ...(termId && { termId }),
-        },
-      })
-
-      if (existingMark) {
-        // Update existing mark
-        const updatedMark = await prisma.mark.update({
-          where: { id: existingMark.id },
-          data: {
-            assessment1,
-            assessment2,
-            assessment3,
-            bot,
-            eot,
-            total,
-            grade,
-            updatedAt: new Date(),
-          },
-        })
-        results.push(updatedMark)
-      } else {
-        // Create new mark
-        const newMark = await prisma.mark.create({
-          data: {
-            studentId,
-            subjectId,
-            termId,
-            assessment1,
-            assessment2,
-            assessment3,
-            bot,
-            eot,
-            total,
-            grade,
-            createdById: session.user.id,
-          },
-        })
-        results.push(newMark)
+      if (!mark.studentId || !mark.subjectId || typeof mark.mark !== "number" || mark.mark < 0 || mark.mark > 100) {
+        return NextResponse.json({ error: "Invalid mark entry" }, { status: 400 })
       }
     }
 
-    return NextResponse.json({
-      message: `Successfully processed ${results.length} marks`,
-      results,
+    // Bulk update or create marks
+    const operations = marks.map((mark: any) => {
+      return prisma.mark.upsert({
+        where: {
+          studentId_subjectId: {
+            studentId: mark.studentId,
+            subjectId: mark.subjectId,
+          },
+        },
+        update: {
+          mark: mark.mark,
+        },
+        create: {
+          studentId: mark.studentId,
+          subjectId: mark.subjectId,
+          mark: mark.mark,
+        },
+      })
     })
+
+    const results = await prisma.$transaction(operations)
+
+    return NextResponse.json({ message: "Marks updated successfully", results }, { status: 200 })
   } catch (error) {
-    console.error("Error saving bulk marks:", error)
-    return NextResponse.json({ error: "Failed to save marks" }, { status: 500 })
+    console.error("Error updating marks:", error)
+    return NextResponse.json({ error: "Failed to update marks" }, { status: 500 })
   }
 }

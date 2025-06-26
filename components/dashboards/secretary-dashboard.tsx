@@ -209,12 +209,12 @@ export default function SecretaryDashboard() {
               Register Student
             </Button>
           </Link>
-          <Link href="/secretary/marks">
+          {/* <Link href="/secretary/marks">
             <Button className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg">
               <ClipboardList className="w-4 h-4 mr-2" />
               Enter Marks
             </Button>
-          </Link>
+          </Link> */}
         </div>
       </div>
 
@@ -459,7 +459,7 @@ export default function SecretaryDashboard() {
                 <span className="text-violet-700 font-medium">Register Student</span>
               </Button>
             </Link>
-            <Link href="/secretary/marks">
+            {/* <Link href="/secretary/marks">
               <Button
                 variant="outline"
                 className="w-full h-24 flex flex-col items-center justify-center space-y-2 border-emerald-200 hover:bg-gradient-to-br hover:from-emerald-50 hover:to-teal-50 transition-all duration-300 group"
@@ -467,7 +467,7 @@ export default function SecretaryDashboard() {
                 <ClipboardList className="w-6 h-6 text-emerald-600 group-hover:scale-110 transition-transform" />
                 <span className="text-emerald-700 font-medium">Enter Marks</span>
               </Button>
-            </Link>
+            </Link> */}
             <Link href="/admin/students">
               <Button
                 variant="outline"

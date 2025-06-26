@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || session.user.role !== "CLASS_TEACHER") {
+    if (!session || !["CLASS_TEACHER", "SECRETARY", "ADMIN"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -15,24 +15,32 @@ export async function GET(request: Request) {
     const subjectId = searchParams.get("subjectId")
     const termId = searchParams.get("termId")
 
-    // Get teacher's assigned classes
-    const teacher = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      include: {
-        assignedClasses: true,
-      },
-    })
+    // Get teacher's assigned classes or allow secretary/admin to access all
+    let teacherClass
+    if (session.user.role === "CLASS_TEACHER") {
+      const teacher = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        include: {
+          assignedClasses: true,
+        },
+      })
 
-    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
-      return NextResponse.json({ error: "No class assigned" }, { status: 400 })
+      if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
+        return NextResponse.json({ error: "No class assigned" }, { status: 400 })
+      }
+      teacherClass = teacher.assignedClasses[0]
+    } else if (session.user.role === "SECRETARY" || session.user.role === "ADMIN") {
+      // Secretary and Admin can access marks from any class
+      teacherClass = null
     }
 
-    const teacherClass = teacher.assignedClasses[0]
+    const whereClause: any = {}
 
-    const whereClause: any = {
-      student: {
+    // Only filter by class if user is a teacher with assigned class
+    if (teacherClass) {
+      whereClause.student = {
         classId: teacherClass.id,
-      },
+      }
     }
 
     if (subjectId) whereClause.subjectId = subjectId
@@ -63,7 +71,9 @@ export async function GET(request: Request) {
         },
         createdBy: {
           select: {
+            id: true,
             name: true,
+            role: true,
           },
         },
       },

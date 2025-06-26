@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || !["CLASS_TEACHER", "SECRETARY"].includes(session.user.role)) {
+    if (!session || !["CLASS_TEACHER", "SECRETARY", "ADMIN"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -88,6 +88,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Allow ADMIN, SECRETARY, and CLASS_TEACHER to view marks
+    if (!["ADMIN", "SECRETARY", "CLASS_TEACHER"].includes(session.user.role)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
     const studentId = searchParams.get("studentId")
     const classId = searchParams.get("classId")
@@ -117,6 +122,13 @@ export async function GET(request: Request) {
         subject: true,
         class: true,
         term: true,
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+          },
+        },
       },
       orderBy: [{ student: { name: "asc" } }, { subject: { name: "asc" } }],
     })

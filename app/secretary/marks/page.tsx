@@ -20,19 +20,18 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   BookOpen,
+  Save,
   FileSpreadsheet,
+  Edit,
   RefreshCw,
   BarChart3,
   Users,
+  Calendar,
   Download,
   TrendingUp,
   PieChart,
   User,
   GraduationCap,
-  Search,
-  Filter,
-  UserPlus,
-  Save,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Progress } from "@/components/ui/progress"
@@ -78,9 +77,6 @@ interface Mark {
   studentId: string
   subjectId: string
   termId: string
-  assessment1?: number
-  assessment2?: number
-  assessment3?: number
   bot?: number
   midterm?: number
   eot?: number
@@ -108,10 +104,19 @@ interface Mark {
   }
 }
 
+interface StudentMark {
+  studentId: string
+  studentName: string
+  mark: number
+  grade: string
+  hasExistingMark: boolean
+  existingMarkId?: string
+}
+
 const EXAM_TYPES = [
   { value: "BOT", label: "Beginning of Term", color: "bg-blue-100 text-blue-800", shortName: "BOT" },
-  { value: "MID", label: "Mid Term", color: "bg-orange-100 text-orange-800", shortName: "MID" },
-  { value: "END", label: "End of Term", color: "bg-green-100 text-green-800", shortName: "END" },
+  { value: "MOT", label: "Middle of Term", color: "bg-orange-100 text-orange-800", shortName: "MOT" },
+  { value: "EOT", label: "End of Term", color: "bg-green-100 text-green-800", shortName: "EOT" },
 ]
 
 const EXPORT_TYPES = [
@@ -174,33 +179,31 @@ export default function SecretaryMarksPage() {
   const [marks, setMarks] = useState<Mark[]>([])
   const [gradingSystem, setGradingSystem] = useState<GradingSystem[]>([])
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Filters
+  const [selectedClass, setSelectedClass] = useState("")
   const [selectedSubject, setSelectedSubject] = useState("")
   const [selectedTerm, setSelectedTerm] = useState("")
-  const [selectedClass, setSelectedClass] = useState("")
   const [selectedExamType, setSelectedExamType] = useState("")
-  const [searchTerm, setSearchTerm] = useState("")
 
-  const [activeTab, setActiveTab] = useState("view-all")
-
-  const [classSubjects, setClassSubjects] = useState<Subject[]>([])
+  // Class-specific data
   const [classStudents, setClassStudents] = useState<Student[]>([])
-  const [selectedStudents, setSelectedStudents] = useState<Student[]>([])
-  const [marksEntry, setMarksEntry] = useState<Record<string, { bot?: number; mid?: number; end?: number }>>({})
-  const [existingMarks, setExistingMarks] = useState<Record<string, Mark>>({})
-  const [showMarksEntry, setShowMarksEntry] = useState(false)
+  const [classSubjects, setClassSubjects] = useState<Subject[]>([])
   const [loadingClassData, setLoadingClassData] = useState(false)
+
+  // Entry state
+  const [entryMarks, setEntryMarks] = useState<Record<string, StudentMark>>({})
+  const [activeTab, setActiveTab] = useState("entry")
 
   // Export state
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [selectedExportType, setSelectedExportType] = useState("")
   const [exportFilters, setExportFilters] = useState({
+    classId: "all",
     subjectId: "all",
     termId: "all",
-    classId: "all",
     examType: "all",
     studentId: "all",
     format: "csv",
@@ -214,26 +217,25 @@ export default function SecretaryMarksPage() {
   }, [])
 
   useEffect(() => {
-    fetchMarks()
     if (selectedClass && selectedClass !== "all") {
       fetchClassData(selectedClass)
     } else {
-      // Reset class-specific data when "all" is selected
-      setClassSubjects([])
       setClassStudents([])
-      setSelectedStudents([])
-      setShowMarksEntry(false)
+      setClassSubjects([])
     }
-  }, [selectedSubject, selectedTerm, selectedClass, searchTerm])
+  }, [selectedClass])
 
   useEffect(() => {
-    if (selectedClass && selectedSubject && selectedTerm && selectedExamType) {
-      fetchExistingMarks()
-      setShowMarksEntry(true)
-    } else {
-      setShowMarksEntry(false)
+    if (selectedSubject || selectedTerm || selectedClass) {
+      fetchMarks()
     }
-  }, [selectedClass, selectedSubject, selectedTerm, selectedExamType])
+  }, [selectedSubject, selectedTerm, selectedClass])
+
+  useEffect(() => {
+    if (selectedClass && selectedSubject && selectedTerm && selectedExamType && classStudents.length > 0) {
+      initializeEntryMarks()
+    }
+  }, [selectedClass, selectedSubject, selectedTerm, selectedExamType, classStudents, marks])
 
   const fetchAllData = async () => {
     setLoading(true)
@@ -263,14 +265,22 @@ export default function SecretaryMarksPage() {
       setSubjects(subjectsData.subjects || subjectsData || [])
       setTerms(termsData.terms || termsData || [])
       setClasses(classesData.classes || classesData || [])
-      setGradingSystem(gradingData.gradingSystem || gradingData || [])
 
-      console.log("Fetched data:", {
-        students: studentsData.students || studentsData || [],
-        subjects: subjectsData.subjects || subjectsData || [],
-        terms: termsData.terms || termsData || [],
-        classes: classesData.classes || classesData || [],
-      })
+      // Set grading system
+      if (gradingData.gradingSystem && gradingData.gradingSystem.length > 0) {
+        setGradingSystem(gradingData.gradingSystem)
+      } else {
+        // Set default grading system if API fails
+        const defaultGrading = [
+          { id: "1", grade: "A", minMark: 80, maxMark: 100, comment: "Excellent" },
+          { id: "2", grade: "B", minMark: 70, maxMark: 79, comment: "Very Good" },
+          { id: "3", grade: "C", minMark: 60, maxMark: 69, comment: "Good" },
+          { id: "4", grade: "D", minMark: 50, maxMark: 59, comment: "Fair" },
+          { id: "5", grade: "E", minMark: 40, maxMark: 49, comment: "Pass" },
+          { id: "6", grade: "F", minMark: 0, maxMark: 39, comment: "Fail" },
+        ]
+        setGradingSystem(defaultGrading)
+      }
     } catch (error) {
       console.error("Error fetching data:", error)
       toast({
@@ -283,35 +293,10 @@ export default function SecretaryMarksPage() {
     }
   }
 
-  const fetchMarks = async () => {
-    try {
-      const params = new URLSearchParams()
-      if (selectedSubject && selectedSubject !== "all") params.append("subjectId", selectedSubject)
-      if (selectedTerm && selectedTerm !== "all") params.append("termId", selectedTerm)
-      if (selectedClass && selectedClass !== "all") params.append("classId", selectedClass)
-      if (searchTerm) params.append("search", searchTerm)
-
-      const response = await fetch(`/api/marks?${params}`)
-
-      if (response.ok) {
-        const data = await response.json()
-        setMarks(Array.isArray(data) ? data : data.marks || [])
-      } else {
-        console.error("Failed to fetch marks:", response.statusText)
-        setMarks([])
-      }
-    } catch (error) {
-      console.error("Error fetching marks:", error)
-      setMarks([])
-    }
-  }
-
   const fetchClassData = async (classId: string) => {
     if (!classId || classId === "all") {
-      setClassSubjects([])
       setClassStudents([])
-      setSelectedStudents([])
-      setShowMarksEntry(false)
+      setClassSubjects([])
       return
     }
 
@@ -322,16 +307,9 @@ export default function SecretaryMarksPage() {
       if (subjectsResponse.ok) {
         const subjectsData = await subjectsResponse.json()
         setClassSubjects(subjectsData.subjects || [])
-        console.log("Class subjects:", subjectsData.subjects || [])
       } else {
-        console.error("Failed to fetch class subjects:", subjectsResponse.statusText)
         // Fallback: show all subjects if class-specific subjects endpoint fails
         setClassSubjects(subjects)
-        toast({
-          title: "Warning",
-          description: "Could not fetch class-specific subjects. Showing all subjects.",
-          variant: "destructive",
-        })
       }
 
       // Fetch students for the selected class
@@ -340,15 +318,10 @@ export default function SecretaryMarksPage() {
         const studentsData = await studentsResponse.json()
         const students = studentsData.students || studentsData || []
         setClassStudents(students)
-        setSelectedStudents(students)
-        console.log("Class students:", students)
       } else {
-        console.error("Failed to fetch class students:", studentsResponse.statusText)
         // Fallback: filter students by class from the main students array
         const filteredStudents = students.filter((student) => student.class?.id === classId)
         setClassStudents(filteredStudents)
-        setSelectedStudents(filteredStudents)
-        console.log("Filtered students:", filteredStudents)
       }
     } catch (error) {
       console.error("Error fetching class data:", error)
@@ -356,56 +329,104 @@ export default function SecretaryMarksPage() {
       setClassSubjects(subjects)
       const filteredStudents = students.filter((student) => student.class?.id === classId)
       setClassStudents(filteredStudents)
-      setSelectedStudents(filteredStudents)
-
-      toast({
-        title: "Warning",
-        description: "Using cached data. Some information may not be up to date.",
-        variant: "destructive",
-      })
     } finally {
       setLoadingClassData(false)
     }
   }
 
-  const fetchExistingMarks = async () => {
-    if (!selectedClass || !selectedSubject || !selectedTerm) return
-
+  const fetchMarks = async () => {
     try {
-      const params = new URLSearchParams({
-        classId: selectedClass,
-        subjectId: selectedSubject,
-        termId: selectedTerm,
-      })
+      const params = new URLSearchParams()
+      if (selectedClass && selectedClass !== "all") params.append("classId", selectedClass)
+      if (selectedSubject && selectedSubject !== "all") params.append("subjectId", selectedSubject)
+      if (selectedTerm && selectedTerm !== "all") params.append("termId", selectedTerm)
 
       const response = await fetch(`/api/marks?${params}`)
+      const data = await response.json()
+
       if (response.ok) {
-        const data = await response.json()
-        const marks = Array.isArray(data) ? data : data.marks || []
-
-        // Create a map of existing marks by student ID
-        const marksMap: Record<string, Mark> = {}
-        const entryMap: Record<string, { bot?: number; mid?: number; end?: number }> = {}
-
-        marks.forEach((mark: Mark) => {
-          marksMap[mark.studentId] = mark
-          entryMap[mark.studentId] = {
-            bot: mark.bot || undefined,
-            mid: mark.midterm || undefined,
-            end: mark.eot || undefined,
-          }
-        })
-
-        setExistingMarks(marksMap)
-        setMarksEntry(entryMap)
-        console.log("Fetched existing marks:", marks.length, "records")
+        setMarks(Array.isArray(data) ? data : data.marks || [])
+      } else {
+        console.error("Failed to fetch marks:", data.error)
+        setMarks([])
       }
     } catch (error) {
-      console.error("Error fetching existing marks:", error)
+      console.error("Error fetching marks:", error)
+      setMarks([])
     }
   }
 
-  const handleMarksSubmit = async () => {
+  const initializeEntryMarks = () => {
+    const initialMarks: Record<string, StudentMark> = {}
+
+    classStudents.forEach((student) => {
+      const existingMark = marks.find(
+        (m) => m.studentId === student.id && m.subjectId === selectedSubject && m.termId === selectedTerm,
+      )
+
+      let currentMark = 0
+      if (existingMark) {
+        switch (selectedExamType) {
+          case "BOT":
+            currentMark = existingMark.bot || 0
+            break
+          case "MOT":
+            currentMark = existingMark.midterm || 0
+            break
+          case "EOT":
+            currentMark = existingMark.eot || 0
+            break
+        }
+      }
+
+      initialMarks[student.id] = {
+        studentId: student.id,
+        studentName: student.name,
+        mark: currentMark,
+        grade: calculateGrade(currentMark).grade,
+        hasExistingMark: currentMark > 0,
+        existingMarkId: existingMark?.id,
+      }
+    })
+
+    setEntryMarks(initialMarks)
+  }
+
+  const calculateGrade = (mark: number): { grade: string; comment: string } => {
+    for (const gradeSystem of gradingSystem) {
+      if (mark >= (gradeSystem.minMark || 0) && mark <= (gradeSystem.maxMark || 100)) {
+        return { grade: gradeSystem.grade, comment: gradeSystem.comment }
+      }
+    }
+    return { grade: "F", comment: "Fail" }
+  }
+
+  const updateStudentMark = (studentId: string, mark: number) => {
+    // Validate mark range
+    if (mark < 0 || mark > 100) {
+      toast({
+        title: "Invalid Mark",
+        description: "Please enter a mark between 0 and 100",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setEntryMarks((prev) => {
+      const updated = { ...prev }
+      if (updated[studentId]) {
+        const { grade } = calculateGrade(mark)
+        updated[studentId] = {
+          ...updated[studentId],
+          mark,
+          grade,
+        }
+      }
+      return updated
+    })
+  }
+
+  const handleSaveMarks = async () => {
     if (!selectedClass || !selectedSubject || !selectedTerm || !selectedExamType) {
       toast({
         title: "Error",
@@ -415,23 +436,20 @@ export default function SecretaryMarksPage() {
       return
     }
 
-    setIsSubmitting(true)
+    setSaving(true)
     try {
-      const marksData = Object.entries(marksEntry)
-        .filter(([studentId, marks]) => {
-          const mark = marks[selectedExamType.toLowerCase() as keyof typeof marks]
-          return mark !== undefined && mark !== null && mark !== ""
-        })
-        .map(([studentId, marks]) => ({
-          studentId,
+      const marksToSave = Object.values(entryMarks)
+        .filter((mark) => mark.mark > 0) // Only save marks that have been entered
+        .map((mark) => ({
+          studentId: mark.studentId,
           subjectId: selectedSubject,
           termId: selectedTerm,
+          mark: mark.mark,
           examType: selectedExamType,
-          mark: marks[selectedExamType.toLowerCase() as keyof typeof marks],
-          existingMarkId: existingMarks[studentId]?.id,
+          existingMarkId: mark.existingMarkId,
         }))
 
-      if (marksData.length === 0) {
+      if (marksToSave.length === 0) {
         toast({
           title: "Warning",
           description: "No marks to save. Please enter at least one mark.",
@@ -443,51 +461,31 @@ export default function SecretaryMarksPage() {
       const response = await fetch("/api/marks/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ marks: marksData }),
+        body: JSON.stringify({ marks: marksToSave }),
       })
 
       if (response.ok) {
         const result = await response.json()
         toast({
           title: "Success",
-          description: result.message || `${marksData.length} marks saved successfully`,
+          description: result.message || `${selectedExamType} marks saved for ${marksToSave.length} students`,
         })
-        fetchExistingMarks()
-        fetchMarks()
+        fetchMarks() // Refresh marks
+        initializeEntryMarks() // Refresh entry marks
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || "Failed to save marks")
       }
     } catch (error) {
-      console.error("Error saving marks:", error)
+      console.error("Save marks error:", error)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to save marks",
         variant: "destructive",
       })
     } finally {
-      setIsSubmitting(false)
+      setSaving(false)
     }
-  }
-
-  const updateMarkEntry = (studentId: string, examType: string, value: string) => {
-    const numValue = value === "" ? undefined : Number(value)
-    setMarksEntry((prev) => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        [examType.toLowerCase()]: numValue,
-      },
-    }))
-  }
-
-  const calculateGrade = (mark: number): { grade: string; comment: string } => {
-    for (const gradeSystem of gradingSystem) {
-      if (mark >= (gradeSystem.minMark || 0) && mark <= (gradeSystem.maxMark || 100)) {
-        return { grade: gradeSystem.grade, comment: gradeSystem.comment }
-      }
-    }
-    return { grade: "F", comment: "Fail" }
   }
 
   const handleExport = async () => {
@@ -575,13 +573,10 @@ export default function SecretaryMarksPage() {
           "Class",
           "Subject",
           "Term",
-          "Assessment 1",
-          "Assessment 2",
-          "Assessment 3",
-          "BOT",
-          "EOT",
-          "Total",
+          "Exam Type",
+          "Mark",
           "Grade",
+          "Total",
           "Last Updated",
         ]
         rows = data.map((item) => [
@@ -590,18 +585,68 @@ export default function SecretaryMarksPage() {
           item.className || "",
           item.subjectName || "",
           item.termName || "",
-          item.assessment1?.toString() || "0",
-          item.assessment2?.toString() || "0",
-          item.assessment3?.toString() || "0",
-          item.bot?.toString() || "0",
-          item.eot?.toString() || "0",
-          item.total?.toString() || "0",
+          item.examType || "",
+          item.mark?.toString() || "0",
           item.grade || "",
+          item.total?.toString() || "0",
           item.lastUpdated || "",
         ])
         break
 
+      case "subject_all_exams":
+        headers = [
+          "Student Name",
+          "Registration Number",
+          "Class",
+          "Subject",
+          "Term",
+          "BOT",
+          "MOT",
+          "EOT",
+          "Total",
+          "Grade",
+        ]
+        rows = data.map((item) => [
+          item.studentName || "",
+          item.registrationNumber || "",
+          item.className || "",
+          item.subjectName || "",
+          item.termName || "",
+          item.bot?.toString() || "0",
+          item.mot?.toString() || "0",
+          item.eot?.toString() || "0",
+          item.total?.toString() || "0",
+          item.grade || "",
+        ])
+        break
+
+      case "class_summary":
+        headers = [
+          "Student Name",
+          "Registration Number",
+          "Class",
+          "Total Subjects",
+          "Average Score",
+          "Highest Score",
+          "Lowest Score",
+          "Grade",
+          "Status",
+        ]
+        rows = data.map((item) => [
+          item.studentName || "",
+          item.registrationNumber || "",
+          item.className || "",
+          item.totalSubjects?.toString() || "0",
+          item.averageScore?.toString() || "0",
+          item.highestScore?.toString() || "0",
+          item.lowestScore?.toString() || "0",
+          item.grade || "",
+          item.status || "",
+        ])
+        break
+
       default:
+        // Default format
         if (data.length > 0) {
           headers = Object.keys(data[0])
           rows = data.map((item) => headers.map((header) => item[header]?.toString() || ""))
@@ -609,6 +654,7 @@ export default function SecretaryMarksPage() {
     }
 
     const csvContent = [headers.join(","), ...rows.map((row) => row.map((cell) => `"${cell}"`).join(","))].join("\n")
+
     return csvContent
   }
 
@@ -627,6 +673,8 @@ export default function SecretaryMarksPage() {
         return "bg-yellow-100 text-yellow-800"
       case "D":
         return "bg-orange-100 text-orange-800"
+      case "E":
+        return "bg-orange-100 text-orange-800"
       case "F":
         return "bg-red-100 text-red-800"
       default:
@@ -636,11 +684,6 @@ export default function SecretaryMarksPage() {
 
   // Filter marks based on selected filters
   const filteredMarks = marks.filter((mark) => {
-    const matchesSearch =
-      !searchTerm ||
-      mark.student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mark.subject.name.toLowerCase().includes(searchTerm.toLowerCase())
-
     const matchesClass =
       !selectedClass ||
       selectedClass === "all" ||
@@ -649,7 +692,7 @@ export default function SecretaryMarksPage() {
     const matchesSubject = !selectedSubject || selectedSubject === "all" || mark.subjectId === selectedSubject
     const matchesTerm = !selectedTerm || selectedTerm === "all" || mark.termId === selectedTerm
 
-    return matchesSearch && matchesClass && matchesSubject && matchesTerm
+    return matchesClass && matchesSubject && matchesTerm
   })
 
   // Group marks for display
@@ -700,22 +743,23 @@ export default function SecretaryMarksPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-gradient-to-br from-orange-50 to-amber-100 min-h-screen">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gradient-to-br from-orange-50 to-amber-100 min-h-screen">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Marks Management & Oversight</h1>
-          <p className="text-gray-600 mt-1">
-            Secretary Dashboard • Assessment System • {students.length} students • {subjects.length} subjects •{" "}
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Secretary Marks Management</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">
+            BOT • MOT • EOT Assessment System • {students.length} students • {subjects.length} subjects •{" "}
             {classes.length} classes
           </p>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
           <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-orange-600 hover:bg-orange-700">
+              <Button className="bg-orange-600 hover:bg-orange-700 text-sm">
                 <Download className="w-4 h-4 mr-2" />
-                Export Reports
+                <span className="hidden sm:inline">Export Data</span>
+                <span className="sm:hidden">Export</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
@@ -739,9 +783,9 @@ export default function SecretaryMarksPage() {
                       return (
                         <div
                           key={type.id}
-                          className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                          className={`p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md ${
                             selectedExportType === type.id
-                              ? "border-orange-500 bg-orange-50"
+                              ? "border-orange-500 bg-orange-50 shadow-lg"
                               : `${type.color} hover:border-gray-300`
                           }`}
                           onClick={() => setSelectedExportType(type.id)}
@@ -846,7 +890,7 @@ export default function SecretaryMarksPage() {
                 <div className="space-y-4">
                   <Label className="text-base font-semibold">Export Options</Label>
 
-                  <div className="flex items-center space-x-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
                     <div className="flex items-center space-x-2">
                       <input
                         type="radio"
@@ -884,14 +928,14 @@ export default function SecretaryMarksPage() {
                 </div>
 
                 {/* Export Button */}
-                <div className="flex justify-end space-x-2 pt-4 border-t">
-                  <Button variant="outline" onClick={() => setExportDialogOpen(false)}>
+                <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-2 pt-4 border-t">
+                  <Button variant="outline" onClick={() => setExportDialogOpen(false)} className="w-full sm:w-auto">
                     Cancel
                   </Button>
                   <Button
                     onClick={handleExport}
                     disabled={exporting || !selectedExportType}
-                    className="bg-orange-600 hover:bg-orange-700"
+                    className="bg-orange-600 hover:bg-orange-700 w-full sm:w-auto"
                   >
                     {exporting ? (
                       <>
@@ -910,550 +954,535 @@ export default function SecretaryMarksPage() {
             </DialogContent>
           </Dialog>
 
-          <Button variant="outline" onClick={() => fetchMarks()} disabled={loading}>
+          <Button variant="outline" onClick={() => fetchMarks()} disabled={loading} className="text-sm">
             <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>
       </div>
 
-      {/* Filters */}
-      <Card className="bg-white shadow-lg border-0">
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Filter className="w-5 h-5 text-orange-600" />
-            <span>Filter & Search</span>
-          </CardTitle>
-          <CardDescription>Filter marks by class, subject, term, or search for specific students</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                placeholder="Search students..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={selectedClass || "all"} onValueChange={setSelectedClass}>
-              <SelectTrigger>
-                <SelectValue placeholder="Filter by class" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Classes</SelectItem>
-                {classes.map((cls) => (
-                  <SelectItem key={cls.id} value={cls.id}>
-                    {cls.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={selectedSubject || "all"} onValueChange={setSelectedSubject} disabled={loadingClassData}>
-              <SelectTrigger>
-                <SelectValue placeholder={loadingClassData ? "Loading subjects..." : "Filter by subject"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Subjects</SelectItem>
-                {(selectedClass && selectedClass !== "all" ? classSubjects : subjects).map((subject) => (
-                  <SelectItem key={subject.id} value={subject.id}>
-                    {subject.name} ({subject.code})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={selectedTerm || "all"} onValueChange={setSelectedTerm}>
-              <SelectTrigger>
-                <SelectValue placeholder="Filter by term" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Terms</SelectItem>
-                {terms.map((term) => (
-                  <SelectItem key={term.id} value={term.id}>
-                    {term.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={selectedExamType || "all"} onValueChange={setSelectedExamType}>
-              <SelectTrigger>
-                <SelectValue placeholder="Filter by exam type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Exam Types</SelectItem>
-                {EXAM_TYPES.map((exam) => (
-                  <SelectItem key={exam.value} value={exam.value}>
-                    {exam.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Show loading indicator when fetching class data */}
-          {loadingClassData && (
-            <div className="flex items-center justify-center py-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-600 mr-2"></div>
-              <span className="text-sm text-gray-600">Loading class data...</span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Main Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
-          <TabsTrigger value="view-all">
-            <FileSpreadsheet className="w-4 h-4 mr-2" />
-            All Marks
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 sm:space-y-6">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 h-auto">
+          <TabsTrigger
+            value="entry"
+            className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-2 p-2 sm:p-3"
+          >
+            <Edit className="w-4 h-4" />
+            <span className="text-xs sm:text-sm">Entry/Update</span>
           </TabsTrigger>
-          <TabsTrigger value="marks-entry">
-            <UserPlus className="w-4 h-4 mr-2" />
-            Enter Marks
+          <TabsTrigger
+            value="view-student"
+            className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-2 p-2 sm:p-3"
+          >
+            <Users className="w-4 h-4" />
+            <span className="text-xs sm:text-sm">By Student</span>
           </TabsTrigger>
-          <TabsTrigger value="view-student">
-            <Users className="w-4 h-4 mr-2" />
-            By Student
+          <TabsTrigger
+            value="view-subject"
+            className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-2 p-2 sm:p-3"
+          >
+            <BookOpen className="w-4 h-4" />
+            <span className="text-xs sm:text-sm">By Subject</span>
           </TabsTrigger>
-          <TabsTrigger value="view-subject">
-            <BookOpen className="w-4 h-4 mr-2" />
-            By Subject
+          <TabsTrigger
+            value="view-class"
+            className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-2 p-2 sm:p-3"
+          >
+            <GraduationCap className="w-4 h-4" />
+            <span className="text-xs sm:text-sm">By Class</span>
           </TabsTrigger>
-          <TabsTrigger value="view-class">
-            <GraduationCap className="w-4 h-4 mr-2" />
-            By Class
-          </TabsTrigger>
-          <TabsTrigger value="analytics">
-            <BarChart3 className="w-4 h-4 mr-2" />
-            Analytics
+          <TabsTrigger
+            value="analytics"
+            className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-2 p-2 sm:p-3"
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span className="text-xs sm:text-sm">Analytics</span>
           </TabsTrigger>
         </TabsList>
 
-        {/* Marks Entry Tab */}
-        <TabsContent value="marks-entry" className="space-y-4">
-          <Card className="bg-white shadow-lg border-0">
+        {/* Entry/Update Tab */}
+        <TabsContent value="entry" className="space-y-4 sm:space-y-6">
+          {/* Selection Controls */}
+          <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
             <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <UserPlus className="w-5 h-5 text-orange-600" />
-                <span>Enter/Update Marks</span>
+              <CardTitle className="flex items-center space-x-2 text-lg sm:text-xl">
+                <Calendar className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
+                <span>Term-Based Assessment Entry</span>
               </CardTitle>
-              <CardDescription>
-                Select class, subject, term, and exam type to enter or update marks for students
+              <CardDescription className="text-sm sm:text-base">
+                Select class, subject, term, and assessment type (BOT/MOT/EOT)
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              {!showMarksEntry ? (
-                <div className="text-center py-12">
-                  <UserPlus className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                  <h3 className="text-lg font-semibold text-gray-600 mb-2">Select Filters to Enter Marks</h3>
-                  <p className="text-gray-500">
-                    Please select a class, subject, term, and exam type to start entering marks.
-                  </p>
-                  {selectedClass && selectedClass !== "all" && (
-                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                      <p className="text-sm text-blue-700">
-                        Class selected: <strong>{classes.find((c) => c.id === selectedClass)?.name}</strong>
-                      </p>
-                      <p className="text-sm text-blue-600 mt-1">
-                        {classStudents.length} students • {classSubjects.length} subjects available
-                      </p>
-                    </div>
-                  )}
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <Label htmlFor="class" className="text-sm font-medium">
+                    Class *
+                  </Label>
+                  <Select value={selectedClass} onValueChange={setSelectedClass}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classes.map((cls) => (
+                        <SelectItem key={cls.id} value={cls.id}>
+                          {cls.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Selected Filters Summary */}
-                  <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
-                    <h4 className="font-semibold text-orange-900 mb-2">Selected Filters:</h4>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge className="bg-orange-100 text-orange-800">
-                        Class: {classes.find((c) => c.id === selectedClass)?.name}
-                      </Badge>
-                      <Badge className="bg-blue-100 text-blue-800">
-                        Subject:{" "}
-                        {
-                          (selectedClass && selectedClass !== "all" ? classSubjects : subjects).find(
-                            (s) => s.id === selectedSubject,
-                          )?.name
-                        }
-                      </Badge>
-                      <Badge className="bg-green-100 text-green-800">
-                        Term: {terms.find((t) => t.id === selectedTerm)?.name}
-                      </Badge>
-                      <Badge className="bg-purple-100 text-purple-800">
-                        Exam: {EXAM_TYPES.find((e) => e.value === selectedExamType)?.label}
-                      </Badge>
-                    </div>
-                  </div>
+                <div>
+                  <Label htmlFor="subject" className="text-sm font-medium">
+                    Subject *
+                  </Label>
+                  <Select
+                    value={selectedSubject}
+                    onValueChange={setSelectedSubject}
+                    disabled={loadingClassData || !selectedClass}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder={loadingClassData ? "Loading..." : "Select subject"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(selectedClass ? classSubjects : subjects).map((subject) => (
+                        <SelectItem key={subject.id} value={subject.id}>
+                          {subject.name} ({subject.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="term" className="text-sm font-medium">
+                    Term *
+                  </Label>
+                  <Select value={selectedTerm} onValueChange={setSelectedTerm}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {terms.map((term) => (
+                        <SelectItem key={term.id} value={term.id}>
+                          {term.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="examType" className="text-sm font-medium">
+                    Assessment Type *
+                  </Label>
+                  <Select value={selectedExamType} onValueChange={setSelectedExamType}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select assessment type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXAM_TYPES.map((exam) => (
+                        <SelectItem key={exam.value} value={exam.value}>
+                          <div className="flex items-center space-x-2">
+                            <Badge className={exam.color} variant="outline">
+                              {exam.shortName}
+                            </Badge>
+                            <span>{exam.label}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
 
-                  {/* Marks Entry Table */}
-                  {selectedStudents.length > 0 ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-lg font-semibold">Enter Marks for {selectedStudents.length} Students</h4>
-                        <Button
-                          onClick={handleMarksSubmit}
-                          disabled={isSubmitting}
-                          className="bg-orange-600 hover:bg-orange-700"
-                        >
-                          {isSubmitting ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                              Saving...
-                            </>
-                          ) : (
-                            <>
-                              <Save className="w-4 h-4 mr-2" />
-                              Save Marks
-                            </>
-                          )}
-                        </Button>
-                      </div>
-
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Student</TableHead>
-                              <TableHead>Current Mark</TableHead>
-                              <TableHead>New/Update Mark</TableHead>
-                              <TableHead>Status</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {selectedStudents.map((student) => {
-                              const existingMark = existingMarks[student.id]
-                              const currentMark = existingMark
-                                ? selectedExamType === "BOT"
-                                  ? existingMark.bot
-                                  : selectedExamType === "MID"
-                                    ? existingMark.midterm
-                                    : selectedExamType === "END"
-                                      ? existingMark.eot
-                                      : null
-                                : null
-
-                              const entryValue =
-                                marksEntry[student.id]?.[
-                                  selectedExamType.toLowerCase() as keyof (typeof marksEntry)[string]
-                                ] || ""
-
-                              return (
-                                <TableRow key={student.id}>
-                                  <TableCell>
-                                    <div className="flex items-center space-x-2">
-                                      <Avatar className="w-8 h-8">
-                                        <AvatarImage src={student.photo || "/placeholder.svg"} />
-                                        <AvatarFallback className="bg-orange-100 text-orange-700">
-                                          {student.name
-                                            .split(" ")
-                                            .map((n) => n[0])
-                                            .join("")
-                                            .slice(0, 2)}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <div>
-                                        <p className="font-medium">{student.name}</p>
-                                        <p className="text-xs text-gray-500">{student.registrationNumber}</p>
-                                      </div>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    {currentMark !== null ? (
-                                      <Badge className="bg-blue-100 text-blue-800">{currentMark}</Badge>
-                                    ) : (
-                                      <span className="text-gray-400">Not entered</span>
-                                    )}
-                                  </TableCell>
-                                  <TableCell>
-                                    <Input
-                                      type="number"
-                                      min="0"
-                                      max="100"
-                                      placeholder="Enter mark"
-                                      value={entryValue}
-                                      onChange={(e) => updateMarkEntry(student.id, selectedExamType, e.target.value)}
-                                      className="w-24"
-                                    />
-                                  </TableCell>
-                                  <TableCell>
-                                    {existingMark ? (
-                                      <Badge variant="outline" className="text-orange-600 border-orange-600">
-                                        Update
-                                      </Badge>
-                                    ) : (
-                                      <Badge variant="outline" className="text-green-600 border-green-600">
-                                        New
-                                      </Badge>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              )
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Users className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                      <p className="text-gray-500">No students found for the selected class.</p>
-                    </div>
-                  )}
+              {/* Show loading indicator when fetching class data */}
+              {loadingClassData && (
+                <div className="flex items-center justify-center py-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-600 mr-2"></div>
+                  <span className="text-sm text-gray-600">Loading class data...</span>
                 </div>
               )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* All Marks Tab */}
-        <TabsContent value="view-all" className="space-y-4">
-          <Card className="bg-white shadow-lg border-0">
-            <CardHeader>
-              <CardTitle>All Marks Overview</CardTitle>
-              <CardDescription>
-                Showing {filteredMarks.length} marks records
-                {(selectedClass || selectedSubject || selectedTerm || searchTerm) && " (filtered)"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {filteredMarks.length > 0 ? (
-                <div className="overflow-x-auto">
+          {/* Marks Entry Table */}
+          {selectedClass && selectedSubject && selectedTerm && selectedExamType && (
+            <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
+                      <Badge className={getExamTypeColor(selectedExamType)}>
+                        {EXAM_TYPES.find((e) => e.value === selectedExamType)?.shortName}
+                      </Badge>
+                      <span className="text-lg sm:text-xl">
+                        {classes.find((c) => c.id === selectedClass)?.name} -{" "}
+                        {(selectedClass ? classSubjects : subjects).find((s) => s.id === selectedSubject)?.name}
+                      </span>
+                    </CardTitle>
+                    <CardDescription className="text-sm sm:text-base">
+                      {terms.find((t) => t.id === selectedTerm)?.name} •{" "}
+                      {EXAM_TYPES.find((e) => e.value === selectedExamType)?.label} • {classStudents.length} students
+                    </CardDescription>
+                  </div>
+                  <Button
+                    onClick={handleSaveMarks}
+                    disabled={saving}
+                    className="bg-orange-600 hover:bg-orange-700 w-full sm:w-auto"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    {saving ? "Saving..." : `Save ${selectedExamType} Marks`}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Mobile Card View */}
+                <div className="sm:hidden space-y-3">
+                  {classStudents.map((student) => {
+                    const studentMark = entryMarks[student.id]
+                    if (!studentMark) return null
+
+                    return (
+                      <Card
+                        key={student.id}
+                        className="border border-gray-200 hover:border-orange-300 transition-colors"
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center space-x-3 mb-3">
+                            <Avatar className="w-10 h-10">
+                              <AvatarImage src={student.photo || "/placeholder.svg"} />
+                              <AvatarFallback className="bg-orange-100 text-orange-700 text-sm">
+                                {student.name
+                                  .split(" ")
+                                  .map((n) => n[0])
+                                  .join("")
+                                  .slice(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">{student.name}</p>
+                              <p className="text-xs text-gray-500">{student.registrationNumber}</p>
+                            </div>
+                            <Badge className={getGradeColor(studentMark.grade)}>{studentMark.grade}</Badge>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div>
+                              <Label className="text-xs text-gray-600">Mark (0-100)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={studentMark.mark}
+                                onChange={(e) => updateStudentMark(student.id, Number.parseInt(e.target.value) || 0)}
+                                className="mt-1 text-center"
+                                placeholder="0"
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-2 flex-1">
+                                <Progress value={studentMark.mark} className="flex-1" />
+                                <span className="text-xs text-gray-500 min-w-[3rem]">{studentMark.mark}%</span>
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  studentMark.hasExistingMark
+                                    ? "bg-blue-50 text-blue-700 ml-2"
+                                    : "bg-green-50 text-green-700 ml-2"
+                                }
+                              >
+                                {studentMark.hasExistingMark ? "Update" : "New"}
+                              </Badge>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+
+                {/* Desktop Table View */}
+                <div className="hidden sm:block overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Term</TableHead>
-                        <TableHead>Ass 1</TableHead>
-                        <TableHead>Ass 2</TableHead>
-                        <TableHead>Ass 3</TableHead>
-                        <TableHead>BOT</TableHead>
-                        <TableHead>EOT</TableHead>
-                        <TableHead>Total</TableHead>
-                        <TableHead>Grade</TableHead>
-                        <TableHead>Progress</TableHead>
+                      <TableRow className="hover:bg-gray-50">
+                        <TableHead className="w-64">Student</TableHead>
+                        <TableHead className="w-32">Mark (0-100)</TableHead>
+                        <TableHead className="w-24">Grade</TableHead>
+                        <TableHead className="w-32">Progress</TableHead>
+                        <TableHead className="w-24">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredMarks.slice(0, 50).map((mark) => (
-                        <TableRow key={mark.id}>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              <Avatar className="w-8 h-8">
-                                <AvatarImage src={mark.student.photo || "/placeholder.svg"} />
-                                <AvatarFallback className="bg-orange-100 text-orange-700">
-                                  {mark.student.name
-                                    .split(" ")
-                                    .map((n) => n[0])
-                                    .join("")
-                                    .slice(0, 2)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="font-medium">{mark.student.name}</p>
-                                <p className="text-xs text-gray-500">{mark.student.registrationNumber}</p>
+                      {classStudents.map((student, index) => {
+                        const studentMark = entryMarks[student.id]
+                        if (!studentMark) return null
+
+                        return (
+                          <TableRow
+                            key={student.id}
+                            className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? "bg-white" : "bg-gray-25"}`}
+                          >
+                            <TableCell>
+                              <div className="flex items-center space-x-3">
+                                <Avatar className="w-8 h-8">
+                                  <AvatarImage src={student.photo || "/placeholder.svg"} />
+                                  <AvatarFallback className="bg-orange-100 text-orange-700">
+                                    {student.name
+                                      .split(" ")
+                                      .map((n) => n[0])
+                                      .join("")
+                                      .slice(0, 2)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-medium">{student.name}</p>
+                                  <p className="text-xs text-gray-500">{student.registrationNumber}</p>
+                                </div>
                               </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{mark.subject.name}</p>
-                              <p className="text-xs text-gray-500">{mark.subject.code}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>{mark.term.name}</TableCell>
-                          <TableCell>
-                            {mark.assessment1 ? (
-                              <Badge className="bg-blue-100 text-blue-800">{mark.assessment1}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.assessment2 ? (
-                              <Badge className="bg-purple-100 text-purple-800">{mark.assessment2}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.assessment3 ? (
-                              <Badge className="bg-indigo-100 text-indigo-800">{mark.assessment3}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.bot ? <Badge className="bg-orange-100 text-orange-800">{mark.bot}</Badge> : "-"}
-                          </TableCell>
-                          <TableCell>
-                            {mark.eot ? <Badge className="bg-green-100 text-green-800">{mark.eot}</Badge> : "-"}
-                          </TableCell>
-                          <TableCell className="font-semibold">{mark.total || "-"}%</TableCell>
-                          <TableCell>
-                            <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Progress value={mark.total || 0} className="w-20" />
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={studentMark.mark}
+                                onChange={(e) => updateStudentMark(student.id, Number.parseInt(e.target.value) || 0)}
+                                className="w-24 text-center hover:border-orange-300 focus:border-orange-500 transition-colors"
+                                placeholder="0"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={getGradeColor(studentMark.grade)}>{studentMark.grade}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center space-x-2">
+                                <Progress value={studentMark.mark} className="w-20" />
+                                <span className="text-xs text-gray-500">{studentMark.mark}%</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {studentMark.hasExistingMark ? (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                                >
+                                  Update
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-green-50 text-green-700 hover:bg-green-100 transition-colors"
+                                >
+                                  New
+                                </Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
-                  {filteredMarks.length > 50 && (
-                    <div className="text-center py-4 text-gray-500">
-                      Showing first 50 records. Use filters to narrow down results.
-                    </div>
-                  )}
                 </div>
-              ) : (
-                <div className="text-center py-12">
-                  <FileSpreadsheet className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                  <h3 className="text-lg font-semibold text-gray-600 mb-2">No Marks Found</h3>
-                  <p className="text-gray-500">
-                    {selectedClass || selectedSubject || selectedTerm || searchTerm
-                      ? "No marks match your current filters."
-                      : "No marks have been recorded yet."}
-                  </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {(!selectedClass || !selectedSubject || !selectedTerm || !selectedExamType) && (
+            <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+              <CardContent className="text-center py-12">
+                <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Select Assessment Parameters</h3>
+                <p className="text-gray-600 mb-4">
+                  Choose class, subject, term, and assessment type to start entering marks
+                </p>
+                <div className="flex justify-center space-x-2 flex-wrap gap-2">
+                  {EXAM_TYPES.map((exam) => (
+                    <Badge key={exam.value} className={exam.color} variant="outline">
+                      {exam.shortName} - {exam.label}
+                    </Badge>
+                  ))}
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* View by Student Tab */}
         <TabsContent value="view-student" className="space-y-4">
-          {Object.entries(marksByStudent).map(([studentName, studentMarks]) => {
-            const totalMarks = studentMarks.filter((m) => m.total && m.total > 0)
-            const average =
-              totalMarks.length > 0
-                ? Math.round(totalMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / totalMarks.length)
-                : 0
+          {Object.entries(marksByStudent).length === 0 ? (
+            <Card className="bg-white shadow-lg border-0">
+              <CardContent className="text-center py-12">
+                <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Student Data</h3>
+                <p className="text-gray-600">Select class, subject and term filters to view student marks</p>
+              </CardContent>
+            </Card>
+          ) : (
+            Object.entries(marksByStudent).map(([studentName, studentMarks]) => {
+              const totalMarks = studentMarks.filter((m) => m.total && m.total > 0)
+              const average =
+                totalMarks.length > 0
+                  ? Math.round(totalMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / totalMarks.length)
+                  : 0
 
-            return (
-              <Card key={studentName} className="bg-white shadow-lg border-0">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <Avatar>
-                        <AvatarImage src={studentMarks[0]?.student.photo || "/placeholder.svg"} />
-                        <AvatarFallback className="bg-orange-100 text-orange-700">
-                          {studentName
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <span className="text-lg">{studentName}</span>
-                        <p className="text-sm text-gray-500">{studentMarks[0]?.student.registrationNumber}</p>
+              return (
+                <Card key={studentName} className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+                  <CardHeader>
+                    <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      <div className="flex items-center space-x-3">
+                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12">
+                          <AvatarImage src={studentMarks[0]?.student.photo || "/placeholder.svg"} />
+                          <AvatarFallback className="bg-orange-100 text-orange-700">
+                            {studentName
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .slice(0, 2)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <span className="text-lg sm:text-xl">{studentName}</span>
+                          <p className="text-sm text-gray-500">{studentMarks[0]?.student.registrationNumber}</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600">Average</p>
-                        <p className="text-lg font-bold text-orange-600">{average}%</p>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-center sm:text-right">
+                          <p className="text-sm text-gray-600">Average</p>
+                          <p className="text-lg font-bold text-orange-600">{average}%</p>
+                        </div>
+                        <Badge className={getGradeColor(calculateGrade(average).grade)}>
+                          {calculateGrade(average).grade}
+                        </Badge>
                       </div>
-                      <Badge className={getGradeColor(calculateGrade(average).grade)}>
-                        {calculateGrade(average).grade}
-                      </Badge>
-                    </div>
-                  </CardTitle>
-                  <CardDescription>{studentMarks.length} subjects assessed</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Term</TableHead>
-                        <TableHead>Ass 1</TableHead>
-                        <TableHead>Ass 2</TableHead>
-                        <TableHead>Ass 3</TableHead>
-                        <TableHead>BOT</TableHead>
-                        <TableHead>EOT</TableHead>
-                        <TableHead>Total</TableHead>
-                        <TableHead>Grade</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                    </CardTitle>
+                    <CardDescription>{studentMarks.length} subjects assessed</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {/* Mobile Card View */}
+                    <div className="sm:hidden space-y-3">
                       {studentMarks.map((mark) => (
-                        <TableRow key={mark.id}>
-                          <TableCell className="font-medium">{mark.subject.name}</TableCell>
-                          <TableCell>{mark.term.name}</TableCell>
-                          <TableCell>{mark.assessment1 || "-"}</TableCell>
-                          <TableCell>{mark.assessment2 || "-"}</TableCell>
-                          <TableCell>{mark.assessment3 || "-"}</TableCell>
-                          <TableCell>{mark.bot || "-"}</TableCell>
-                          <TableCell>{mark.eot || "-"}</TableCell>
-                          <TableCell className="font-semibold">{mark.total || "-"}%</TableCell>
-                          <TableCell>
-                            <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
-                          </TableCell>
-                        </TableRow>
+                        <Card key={mark.id} className="border border-gray-200">
+                          <CardContent className="p-3">
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <p className="font-medium text-sm">{mark.subject.name}</p>
+                                <p className="text-xs text-gray-500">{mark.term.name}</p>
+                              </div>
+                              <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                              <div>
+                                <p className="text-gray-600">BOT</p>
+                                <p className="font-medium">{mark.bot || "-"}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">MOT</p>
+                                <p className="font-medium">{mark.midterm || "-"}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">EOT</p>
+                                <p className="font-medium">{mark.eot || "-"}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">Total</p>
+                                <p className="font-semibold text-orange-600">{mark.total || "-"}%</p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
                       ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )
-          })}
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <div className="hidden sm:block overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-gray-50">
+                            <TableHead>Subject</TableHead>
+                            <TableHead>Term</TableHead>
+                            <TableHead>BOT</TableHead>
+                            <TableHead>MOT</TableHead>
+                            <TableHead>EOT</TableHead>
+                            <TableHead>Total</TableHead>
+                            <TableHead>Grade</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {studentMarks.map((mark, index) => (
+                            <TableRow
+                              key={mark.id}
+                              className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? "bg-white" : "bg-gray-25"}`}
+                            >
+                              <TableCell className="font-medium">{mark.subject.name}</TableCell>
+                              <TableCell>{mark.term.name}</TableCell>
+                              <TableCell>{mark.bot || "-"}</TableCell>
+                              <TableCell>{mark.midterm || "-"}</TableCell>
+                              <TableCell>{mark.eot || "-"}</TableCell>
+                              <TableCell className="font-semibold">{mark.total || "-"}%</TableCell>
+                              <TableCell>
+                                <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })
+          )}
         </TabsContent>
 
         {/* View by Subject Tab */}
         <TabsContent value="view-subject" className="space-y-4">
-          {Object.entries(marksBySubject).map(([subjectName, subjectMarks]) => {
-            const totalMarks = subjectMarks.filter((m) => m.total && m.total > 0)
-            const average =
-              totalMarks.length > 0
-                ? Math.round(totalMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / totalMarks.length)
-                : 0
+          {Object.entries(marksBySubject).length === 0 ? (
+            <Card className="bg-white shadow-lg border-0">
+              <CardContent className="text-center py-12">
+                <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Subject Data</h3>
+                <p className="text-gray-600">Select class, subject and term filters to view subject marks</p>
+              </CardContent>
+            </Card>
+          ) : (
+            Object.entries(marksBySubject).map(([subjectName, subjectMarks]) => {
+              const totalMarks = subjectMarks.filter((m) => m.total && m.total > 0)
+              const average =
+                totalMarks.length > 0
+                  ? Math.round(totalMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / totalMarks.length)
+                  : 0
 
-            return (
-              <Card key={subjectName} className="bg-white shadow-lg border-0">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <BookOpen className="w-5 h-5 text-orange-600" />
-                      <span>{subjectName}</span>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600">Class Average</p>
-                        <p className="text-lg font-bold text-orange-600">{average}%</p>
+              return (
+                <Card key={subjectName} className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+                  <CardHeader>
+                    <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      <div className="flex items-center space-x-2">
+                        <BookOpen className="w-5 h-5 text-orange-600" />
+                        <span className="text-lg sm:text-xl">{subjectName}</span>
                       </div>
-                      <Badge className={getGradeColor(calculateGrade(average).grade)}>
-                        {calculateGrade(average).grade}
-                      </Badge>
-                    </div>
-                  </CardTitle>
-                  <CardDescription>{subjectMarks.length} students assessed</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Term</TableHead>
-                        <TableHead>Ass 1</TableHead>
-                        <TableHead>Ass 2</TableHead>
-                        <TableHead>Ass 3</TableHead>
-                        <TableHead>BOT</TableHead>
-                        <TableHead>EOT</TableHead>
-                        <TableHead>Total</TableHead>
-                        <TableHead>Grade</TableHead>
-                        <TableHead>Progress</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-center sm:text-right">
+                          <p className="text-sm text-gray-600">Class Average</p>
+                          <p className="text-lg font-bold text-orange-600">{average}%</p>
+                        </div>
+                        <Badge className={getGradeColor(calculateGrade(average).grade)}>
+                          {calculateGrade(average).grade}
+                        </Badge>
+                      </div>
+                    </CardTitle>
+                    <CardDescription>{subjectMarks.length} students assessed</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {/* Mobile Card View */}
+                    <div className="sm:hidden space-y-3">
                       {subjectMarks.map((mark) => (
-                        <TableRow key={mark.id}>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              <Avatar className="w-6 h-6">
+                        <Card key={mark.id} className="border border-gray-200">
+                          <CardContent className="p-3">
+                            <div className="flex items-center space-x-3 mb-3">
+                              <Avatar className="w-8 h-8">
                                 <AvatarImage src={mark.student.photo || "/placeholder.svg"} />
                                 <AvatarFallback className="bg-orange-100 text-orange-700 text-xs">
                                   {mark.student.name
@@ -1463,105 +1492,185 @@ export default function SecretaryMarksPage() {
                                     .slice(0, 2)}
                                 </AvatarFallback>
                               </Avatar>
-                              <span className="font-medium">{mark.student.name}</span>
+                              <div className="flex-1">
+                                <p className="font-medium text-sm">{mark.student.name}</p>
+                                <p className="text-xs text-gray-500">{mark.term.name}</p>
+                              </div>
+                              <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
                             </div>
-                          </TableCell>
-                          <TableCell>{mark.term.name}</TableCell>
-                          <TableCell>
-                            {mark.assessment1 ? (
-                              <Badge className="bg-blue-100 text-blue-800">{mark.assessment1}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.assessment2 ? (
-                              <Badge className="bg-purple-100 text-purple-800">{mark.assessment2}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.assessment3 ? (
-                              <Badge className="bg-indigo-100 text-indigo-800">{mark.assessment3}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.bot ? <Badge className="bg-orange-100 text-orange-800">{mark.bot}</Badge> : "-"}
-                          </TableCell>
-                          <TableCell>
-                            {mark.eot ? <Badge className="bg-green-100 text-green-800">{mark.eot}</Badge> : "-"}
-                          </TableCell>
-                          <TableCell className="font-semibold">{mark.total || "-"}%</TableCell>
-                          <TableCell>
-                            <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Progress value={mark.total || 0} className="w-20" />
-                          </TableCell>
-                        </TableRow>
+                            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                              <div>
+                                <p className="text-gray-600">BOT</p>
+                                <p className="font-medium">
+                                  {mark.bot ? (
+                                    <Badge className="bg-blue-100 text-blue-800 text-xs">{mark.bot}</Badge>
+                                  ) : (
+                                    "-"
+                                  )}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">MOT</p>
+                                <p className="font-medium">
+                                  {mark.midterm ? (
+                                    <Badge className="bg-orange-100 text-orange-800 text-xs">{mark.midterm}</Badge>
+                                  ) : (
+                                    "-"
+                                  )}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">EOT</p>
+                                <p className="font-medium">
+                                  {mark.eot ? (
+                                    <Badge className="bg-green-100 text-green-800 text-xs">{mark.eot}</Badge>
+                                  ) : (
+                                    "-"
+                                  )}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">Total</p>
+                                <p className="font-semibold text-orange-600">{mark.total || "-"}%</p>
+                              </div>
+                            </div>
+                            <div className="mt-2">
+                              <Progress value={mark.total || 0} className="h-2" />
+                            </div>
+                          </CardContent>
+                        </Card>
                       ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )
-          })}
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <div className="hidden sm:block overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-gray-50">
+                            <TableHead>Student</TableHead>
+                            <TableHead>Term</TableHead>
+                            <TableHead>BOT</TableHead>
+                            <TableHead>MOT</TableHead>
+                            <TableHead>EOT</TableHead>
+                            <TableHead>Total</TableHead>
+                            <TableHead>Grade</TableHead>
+                            <TableHead>Progress</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {subjectMarks.map((mark, index) => (
+                            <TableRow
+                              key={mark.id}
+                              className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? "bg-white" : "bg-gray-25"}`}
+                            >
+                              <TableCell>
+                                <div className="flex items-center space-x-2">
+                                  <Avatar className="w-6 h-6">
+                                    <AvatarImage src={mark.student.photo || "/placeholder.svg"} />
+                                    <AvatarFallback className="bg-orange-100 text-orange-700 text-xs">
+                                      {mark.student.name
+                                        .split(" ")
+                                        .map((n) => n[0])
+                                        .join("")
+                                        .slice(0, 2)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="font-medium">{mark.student.name}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>{mark.term.name}</TableCell>
+                              <TableCell>
+                                {mark.bot ? (
+                                  <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors">
+                                    {mark.bot}
+                                  </Badge>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {mark.midterm ? (
+                                  <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-200 transition-colors">
+                                    {mark.midterm}
+                                  </Badge>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {mark.eot ? (
+                                  <Badge className="bg-green-100 text-green-800 hover:bg-green-200 transition-colors">
+                                    {mark.eot}
+                                  </Badge>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
+                              <TableCell className="font-semibold">{mark.total || "-"}%</TableCell>
+                              <TableCell>
+                                <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Progress value={mark.total || 0} className="w-20" />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })
+          )}
         </TabsContent>
 
         {/* View by Class Tab */}
         <TabsContent value="view-class" className="space-y-4">
-          {Object.entries(marksByClass).map(([className, classMarks]) => {
-            const totalMarks = classMarks.filter((m) => m.total && m.total > 0)
-            const average =
-              totalMarks.length > 0
-                ? Math.round(totalMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / totalMarks.length)
-                : 0
+          {Object.entries(marksByClass).length === 0 ? (
+            <Card className="bg-white shadow-lg border-0">
+              <CardContent className="text-center py-12">
+                <GraduationCap className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Class Data</h3>
+                <p className="text-gray-600">Select filters to view class marks</p>
+              </CardContent>
+            </Card>
+          ) : (
+            Object.entries(marksByClass).map(([className, classMarks]) => {
+              const totalMarks = classMarks.filter((m) => m.total && m.total > 0)
+              const average =
+                totalMarks.length > 0
+                  ? Math.round(totalMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / totalMarks.length)
+                  : 0
 
-            return (
-              <Card key={className} className="bg-white shadow-lg border-0">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <GraduationCap className="w-5 h-5 text-orange-600" />
-                      <span>Class {className}</span>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600">Class Average</p>
-                        <p className="text-lg font-bold text-orange-600">{average}%</p>
+              return (
+                <Card key={className} className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
+                  <CardHeader>
+                    <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      <div className="flex items-center space-x-2">
+                        <GraduationCap className="w-5 h-5 text-orange-600" />
+                        <span className="text-lg sm:text-xl">Class {className}</span>
                       </div>
-                      <Badge className={getGradeColor(calculateGrade(average).grade)}>
-                        {calculateGrade(average).grade}
-                      </Badge>
-                    </div>
-                  </CardTitle>
-                  <CardDescription>{classMarks.length} assessment records</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Term</TableHead>
-                        <TableHead>Ass 1</TableHead>
-                        <TableHead>Ass 2</TableHead>
-                        <TableHead>Ass 3</TableHead>
-                        <TableHead>BOT</TableHead>
-                        <TableHead>EOT</TableHead>
-                        <TableHead>Total</TableHead>
-                        <TableHead>Grade</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-center sm:text-right">
+                          <p className="text-sm text-gray-600">Class Average</p>
+                          <p className="text-lg font-bold text-orange-600">{average}%</p>
+                        </div>
+                        <Badge className={getGradeColor(calculateGrade(average).grade)}>
+                          {calculateGrade(average).grade}
+                        </Badge>
+                      </div>
+                    </CardTitle>
+                    <CardDescription>{classMarks.length} assessment records</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {/* Mobile Card View */}
+                    <div className="sm:hidden space-y-3">
                       {classMarks.map((mark) => (
-                        <TableRow key={mark.id}>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              <Avatar className="w-6 h-6">
+                        <Card key={mark.id} className="border border-gray-200">
+                          <CardContent className="p-3">
+                            <div className="flex items-center space-x-3 mb-3">
+                              <Avatar className="w-8 h-8">
                                 <AvatarImage src={mark.student.photo || "/placeholder.svg"} />
                                 <AvatarFallback className="bg-orange-100 text-orange-700 text-xs">
                                   {mark.student.name
@@ -1571,113 +1680,167 @@ export default function SecretaryMarksPage() {
                                     .slice(0, 2)}
                                 </AvatarFallback>
                               </Avatar>
-                              <span className="font-medium">{mark.student.name}</span>
+                              <div className="flex-1">
+                                <p className="font-medium text-sm">{mark.student.name}</p>
+                                <p className="text-xs text-gray-500">
+                                  {mark.subject.name} - {mark.term.name}
+                                </p>
+                              </div>
+                              <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
                             </div>
-                          </TableCell>
-                          <TableCell>{mark.subject.name}</TableCell>
-                          <TableCell>{mark.term.name}</TableCell>
-                          <TableCell>
-                            {mark.assessment1 ? (
-                              <Badge className="bg-blue-100 text-blue-800">{mark.assessment1}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.assessment2 ? (
-                              <Badge className="bg-purple-100 text-purple-800">{mark.assessment2}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.assessment3 ? (
-                              <Badge className="bg-indigo-100 text-indigo-800">{mark.assessment3}</Badge>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {mark.bot ? <Badge className="bg-orange-100 text-orange-800">{mark.bot}</Badge> : "-"}
-                          </TableCell>
-                          <TableCell>
-                            {mark.eot ? <Badge className="bg-green-100 text-green-800">{mark.eot}</Badge> : "-"}
-                          </TableCell>
-                          <TableCell className="font-semibold">{mark.total || "-"}%</TableCell>
-                          <TableCell>
-                            <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
-                          </TableCell>
-                        </TableRow>
+                            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                              <div>
+                                <p className="text-gray-600">BOT</p>
+                                <p className="font-medium">{mark.bot || "-"}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">MOT</p>
+                                <p className="font-medium">{mark.midterm || "-"}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">EOT</p>
+                                <p className="font-medium">{mark.eot || "-"}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">Total</p>
+                                <p className="font-semibold text-orange-600">{mark.total || "-"}%</p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
                       ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )
-          })}
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <div className="hidden sm:block overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-gray-50">
+                            <TableHead>Student</TableHead>
+                            <TableHead>Subject</TableHead>
+                            <TableHead>Term</TableHead>
+                            <TableHead>BOT</TableHead>
+                            <TableHead>MOT</TableHead>
+                            <TableHead>EOT</TableHead>
+                            <TableHead>Total</TableHead>
+                            <TableHead>Grade</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {classMarks.map((mark, index) => (
+                            <TableRow
+                              key={mark.id}
+                              className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? "bg-white" : "bg-gray-25"}`}
+                            >
+                              <TableCell>
+                                <div className="flex items-center space-x-2">
+                                  <Avatar className="w-6 h-6">
+                                    <AvatarImage src={mark.student.photo || "/placeholder.svg"} />
+                                    <AvatarFallback className="bg-orange-100 text-orange-700 text-xs">
+                                      {mark.student.name
+                                        .split(" ")
+                                        .map((n) => n[0])
+                                        .join("")
+                                        .slice(0, 2)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="font-medium">{mark.student.name}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>{mark.subject.name}</TableCell>
+                              <TableCell>{mark.term.name}</TableCell>
+                              <TableCell>
+                                {mark.bot ? <Badge className="bg-blue-100 text-blue-800">{mark.bot}</Badge> : "-"}
+                              </TableCell>
+                              <TableCell>
+                                {mark.midterm ? (
+                                  <Badge className="bg-orange-100 text-orange-800">{mark.midterm}</Badge>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {mark.eot ? <Badge className="bg-green-100 text-green-800">{mark.eot}</Badge> : "-"}
+                              </TableCell>
+                              <TableCell className="font-semibold">{mark.total || "-"}%</TableCell>
+                              <TableCell>
+                                <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })
+          )}
         </TabsContent>
 
         {/* Analytics Tab */}
-        <TabsContent value="analytics" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-0">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2 text-blue-800">
-                  <Users className="w-5 h-5" />
+        <TabsContent value="analytics" className="space-y-4 sm:space-y-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-0 hover:shadow-lg transition-shadow">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center space-x-2 text-blue-800 text-sm sm:text-base">
+                  <Users className="w-4 h-4 sm:w-5 sm:h-5" />
                   <span>Students</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-blue-900">{students.length}</p>
-                <p className="text-sm text-blue-600">Total enrolled</p>
+                <p className="text-2xl sm:text-3xl font-bold text-blue-900">{students.length}</p>
+                <p className="text-xs sm:text-sm text-blue-600">Total enrolled</p>
               </CardContent>
             </Card>
 
-            <Card className="bg-gradient-to-br from-green-50 to-green-100 border-0">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2 text-green-800">
-                  <BookOpen className="w-5 h-5" />
+            <Card className="bg-gradient-to-br from-green-50 to-green-100 border-0 hover:shadow-lg transition-shadow">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center space-x-2 text-green-800 text-sm sm:text-base">
+                  <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />
                   <span>Subjects</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-green-900">{subjects.length}</p>
-                <p className="text-sm text-green-600">Being taught</p>
+                <p className="text-2xl sm:text-3xl font-bold text-green-900">{subjects.length}</p>
+                <p className="text-xs sm:text-sm text-green-600">Being taught</p>
               </CardContent>
             </Card>
 
-            <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-0">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2 text-orange-800">
-                  <GraduationCap className="w-5 h-5" />
+            <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-0 hover:shadow-lg transition-shadow">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center space-x-2 text-orange-800 text-sm sm:text-base">
+                  <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5" />
                   <span>Classes</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-orange-900">{classes.length}</p>
-                <p className="text-sm text-orange-600">Active classes</p>
+                <p className="text-2xl sm:text-3xl font-bold text-orange-900">{classes.length}</p>
+                <p className="text-xs sm:text-sm text-orange-600">Active classes</p>
               </CardContent>
             </Card>
 
-            <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-0">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2 text-purple-800">
-                  <FileSpreadsheet className="w-5 h-5" />
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-0 hover:shadow-lg transition-shadow">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center space-x-2 text-purple-800 text-sm sm:text-base">
+                  <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5" />
                   <span>Assessments</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-purple-900">{marks.length}</p>
-                <p className="text-sm text-purple-600">Marks recorded</p>
+                <p className="text-2xl sm:text-3xl font-bold text-purple-900">{marks.length}</p>
+                <p className="text-xs sm:text-sm text-purple-600">Marks recorded</p>
               </CardContent>
             </Card>
           </div>
 
           {/* Assessment Type Distribution */}
-          <Card className="bg-white shadow-lg border-0">
+          <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
             <CardHeader>
-              <CardTitle>Assessment Type Distribution</CardTitle>
-              <CardDescription>Overview of all assessments across all classes</CardDescription>
+              <CardTitle className="text-lg sm:text-xl">Assessment Type Distribution</CardTitle>
+              <CardDescription className="text-sm sm:text-base">
+                Overview of BOT, MOT, and EOT assessments
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -1685,15 +1848,18 @@ export default function SecretaryMarksPage() {
                   let count = 0
                   marks.forEach((mark) => {
                     if (examType.value === "BOT" && mark.bot) count++
-                    if (examType.value === "MID" && mark.midterm) count++
-                    if (examType.value === "END" && mark.eot) count++
+                    if (examType.value === "MOT" && mark.midterm) count++
+                    if (examType.value === "EOT" && mark.eot) count++
                   })
 
                   const totalPossible = marks.length
                   const percentage = totalPossible > 0 ? Math.round((count / totalPossible) * 100) : 0
 
                   return (
-                    <div key={examType.value} className="flex items-center space-x-4">
+                    <div
+                      key={examType.value}
+                      className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4"
+                    >
                       <Badge className={examType.color} variant="outline">
                         {examType.shortName}
                       </Badge>
@@ -1713,35 +1879,38 @@ export default function SecretaryMarksPage() {
             </CardContent>
           </Card>
 
-          {/* Grade Distribution */}
-          <Card className="bg-white shadow-lg border-0">
+          {/* Grading System Display */}
+          <Card className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
             <CardHeader>
-              <CardTitle>Grade Distribution</CardTitle>
-              <CardDescription>Overall grade distribution across all assessments</CardDescription>
+              <CardTitle className="text-lg sm:text-xl">Current Grading System</CardTitle>
+              <CardDescription className="text-sm sm:text-base">
+                Grade boundaries and descriptions from database
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {["A", "B", "C", "D", "F"].map((grade) => {
-                  const count = marks.filter((mark) => mark.grade === grade).length
-                  const percentage = marks.length > 0 ? Math.round((count / marks.length) * 100) : 0
-
-                  return (
-                    <div key={grade} className="flex items-center space-x-4">
-                      <Badge className={getGradeColor(grade)} variant="outline">
-                        Grade {grade}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {gradingSystem.map((grade) => (
+                  <div
+                    key={grade.id}
+                    className="p-4 rounded-lg border hover:shadow-md transition-shadow"
+                    style={{
+                      backgroundColor: getGradeColor(grade.grade)
+                        .split(" ")[0]
+                        .replace("bg-", "")
+                        .replace("-100", "-50"),
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <Badge className={getGradeColor(grade.grade)} variant="outline">
+                        Grade {grade.grade}
                       </Badge>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium">Grade {grade}</span>
-                          <span className="text-sm text-gray-600">
-                            {count} students ({percentage}%)
-                          </span>
-                        </div>
-                        <Progress value={percentage} className="h-2" />
-                      </div>
+                      <span className="text-sm font-medium">
+                        {grade.minMark}% - {grade.maxMark}%
+                      </span>
                     </div>
-                  )
-                })}
+                    <p className="text-sm text-gray-600">{grade.comment}</p>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>

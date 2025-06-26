@@ -98,11 +98,11 @@ export async function POST(request: Request) {
           updateData.bot = numericMark
           createData.bot = numericMark
           break
-        case "MID":
+        case "MOT":
           updateData.midterm = numericMark
           createData.midterm = numericMark
           break
-        case "END":
+        case "EOT":
           updateData.eot = numericMark
           createData.eot = numericMark
           break
@@ -126,8 +126,8 @@ export async function POST(request: Request) {
 
         // Update with new mark
         if (examType.toUpperCase() === "BOT") marks.bot = numericMark
-        if (examType.toUpperCase() === "MID") marks.midterm = numericMark
-        if (examType.toUpperCase() === "END") marks.eot = numericMark
+        if (examType.toUpperCase() === "MOT") marks.midterm = numericMark
+        if (examType.toUpperCase() === "EOT") marks.eot = numericMark
 
         // Calculate total from all available marks
         if (marks.bot > 0) {
