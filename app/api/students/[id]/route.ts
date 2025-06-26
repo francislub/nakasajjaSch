@@ -107,7 +107,8 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || session.user.role !== "ADMIN") {
+    // Allow ADMIN and SECRETARY to delete students
+    if (!session || !["ADMIN", "SECRETARY"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

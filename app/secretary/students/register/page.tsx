@@ -69,6 +69,8 @@ export default function SecretaryRegisterStudentPage() {
   useEffect(() => {
     if (parentSearch) {
       fetchParents()
+    } else {
+      setParents([])
     }
   }, [parentSearch])
 
@@ -155,9 +157,36 @@ export default function SecretaryRegisterStudentPage() {
   }
 
   const selectParent = (parent: Parent) => {
-    setFormData({ ...formData, parentId: parent.id })
+    setFormData({
+      ...formData,
+      parentId: parent.id,
+      // Clear new parent fields when selecting existing parent
+      parentName: "",
+      parentEmail: "",
+      parentPassword: "",
+    })
     setShowNewParent(false)
     setParentSearch("")
+  }
+
+  const handleNewParentToggle = () => {
+    setShowNewParent(true)
+    setFormData({
+      ...formData,
+      parentId: "", // Clear selected parent when creating new
+    })
+    setParentSearch("")
+  }
+
+  const handleExistingParentToggle = () => {
+    setShowNewParent(false)
+    setFormData({
+      ...formData,
+      // Clear new parent fields when switching to existing
+      parentName: "",
+      parentEmail: "",
+      parentPassword: "",
+    })
   }
 
   const selectedParent = parents.find((p) => p.id === formData.parentId)
@@ -284,7 +313,7 @@ export default function SecretaryRegisterStudentPage() {
                     type="button"
                     variant={!showNewParent ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setShowNewParent(false)}
+                    onClick={handleExistingParentToggle}
                   >
                     <Search className="w-4 h-4 mr-2" />
                     Select Existing
@@ -293,7 +322,7 @@ export default function SecretaryRegisterStudentPage() {
                     type="button"
                     variant={showNewParent ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setShowNewParent(true)}
+                    onClick={handleNewParentToggle}
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     Create New
