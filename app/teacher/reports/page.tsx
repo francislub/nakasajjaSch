@@ -64,6 +64,21 @@ interface Mark {
     id: string
     name: string
   }
+  student: {
+    id: string
+    name: string
+    photo?: string
+    registrationNumber?: string
+    class: {
+      id: string
+      name: string
+    }
+  }
+  createdBy?: {
+    id: string
+    name: string
+    role: string
+  }
 }
 
 interface DivisionResult {
@@ -85,11 +100,28 @@ interface Student {
   name: string
   photo?: string
   gender: string
+  registrationNumber?: string
   class: {
     id: string
     name: string
+    classTeacher?: {
+      id: string
+      name: string
+      email: string
+    }
+    subjects: {
+      id: string
+      name: string
+      code: string
+    }[]
+    academicYear?: {
+      id: string
+      year: string
+      isCurrent: boolean
+    }
   }
   parent?: {
+    id: string
     name: string
     email: string
   }
@@ -122,6 +154,24 @@ interface ReportCard {
 interface Class {
   id: string
   name: string
+  academicYear?: {
+    id: string
+    year: string
+    isCurrent: boolean
+  }
+  subjects: {
+    id: string
+    name: string
+    code: string
+  }[]
+  classTeacher?: {
+    id: string
+    name: string
+    email: string
+  }
+  _count?: {
+    students: number
+  }
 }
 
 interface Term {
@@ -528,7 +578,7 @@ export default function TeacherReportsPage() {
       console.log("🔍 Parameters:", { selectedClass, selectedTerm, selectedAcademicYear })
       setIsRefreshing(true)
 
-      // Fetch students in the class
+      // Fetch students in the class with all their marks
       const studentsUrl = `/api/teacher/students?classId=${selectedClass}&academicYearId=${selectedAcademicYear}`
       console.log("📡 Fetching students from:", studentsUrl)
 
@@ -553,60 +603,35 @@ export default function TeacherReportsPage() {
         return
       }
 
-      // Fetch marks and reports for each student
-      console.log("📊 Fetching marks and reports for each student...")
-      const studentsWithMarks = await Promise.all(
-        studentsList.map(async (student: any) => {
-          try {
-            console.log(`📡 Fetching data for student: ${student.name} (${student.id})`)
+      // Process students with their marks and calculate divisions
+      console.log("📊 Processing students with marks and calculating divisions...")
+      const studentsWithDivisions = studentsList.map((student: any) => {
+        console.log(`📡 Processing student: ${student.name} (${student.id})`)
 
-            // Fetch marks
-            const marksUrl = `/api/teacher/marks?studentId=${student.id}&termId=${selectedTerm}&academicYearId=${selectedAcademicYear}`
-            console.log("📡 Fetching marks from:", marksUrl)
+        // Filter marks for the selected term
+        const termMarks = student.marks.filter((mark: Mark) => mark.term.id === selectedTerm)
+        console.log(`📊 Term marks for ${student.name}:`, termMarks)
 
-            const marksResponse = await fetch(marksUrl)
-            const marksData = marksResponse.ok ? await marksResponse.json() : { marks: [] }
-            console.log(`📊 Marks for ${student.name}:`, marksData)
+        // Calculate divisions for each exam type
+        console.log(`🧮 Calculating divisions for ${student.name}...`)
+        const divisions = {
+          BOT: calculateDivision(termMarks, "BOT", gradingSystem),
+          MID: calculateDivision(termMarks, "MID", gradingSystem),
+          END: calculateDivision(termMarks, "END", gradingSystem),
+        }
+        console.log(`📊 Divisions for ${student.name}:`, divisions)
 
-            // Fetch report cards - Updated to use correct API
-            const reportUrl = `/api/report-cards?studentId=${student.id}`
-            console.log("📡 Fetching reports from:", reportUrl)
+        return {
+          ...student,
+          marks: termMarks,
+          divisions,
+        }
+      })
 
-            const reportResponse = await fetch(reportUrl)
-            const reportData = reportResponse.ok ? await reportResponse.json() : { reportCards: [] }
-            console.log(`📋 Reports for ${student.name}:`, reportData)
-
-            // Calculate divisions for each exam type
-            console.log(`🧮 Calculating divisions for ${student.name}...`)
-            const divisions = {
-              BOT: calculateDivision(marksData.marks || [], "BOT", gradingSystem),
-              MID: calculateDivision(marksData.marks || [], "MID", gradingSystem),
-              END: calculateDivision(marksData.marks || [], "END", gradingSystem),
-            }
-            console.log(`📊 Divisions for ${student.name}:`, divisions)
-
-            return {
-              ...student,
-              marks: marksData.marks || [],
-              reportCards: reportData.reportCards || [],
-              divisions,
-            }
-          } catch (error) {
-            console.error(`❌ Error fetching data for student ${student.id}:`, error)
-            return {
-              ...student,
-              marks: [],
-              reportCards: [],
-              divisions: { BOT: null, MID: null, END: null },
-            }
-          }
-        }),
-      )
-
-      console.log("✅ All student data processed:", studentsWithMarks)
-      setStudents(studentsWithMarks)
-      calculateStatistics(studentsWithMarks)
-      updatePagination(studentsWithMarks.length)
+      console.log("✅ All student data processed:", studentsWithDivisions)
+      setStudents(studentsWithDivisions)
+      calculateStatistics(studentsWithDivisions)
+      updatePagination(studentsWithDivisions.length)
     } catch (error) {
       console.error("❌ Error fetching students with marks:", error)
       toast({
@@ -1137,7 +1162,7 @@ export default function TeacherReportsPage() {
             <Button
               variant="outline"
               size="sm"
-              className="sm:hidden"
+              className="sm:hidden bg-transparent"
               onClick={() => setIsMobileFiltersOpen(!isMobileFiltersOpen)}
             >
               {isMobileFiltersOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}

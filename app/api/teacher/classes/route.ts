@@ -1,96 +1,90 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session?.user?.id) {
+    if (!session || !["CLASS_TEACHER", "SECRETARY", "ADMIN"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Check if user is a teacher
-    if (session.user.role !== "CLASS_TEACHER" && session.user.role !== "HEAD_TEACHER") {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
-    }
+    let classes = []
 
-    // Get current academic year
-    const currentAcademicYear = await prisma.academicYear.findFirst({
-      where: { isActive: true },
-    })
-
-    if (!currentAcademicYear) {
-      return NextResponse.json({ error: "No active academic year found" }, { status: 404 })
-    }
-
-    // Get teacher's assigned classes
-    const teacher = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      include: {
-        assignedClasses: {
-          where: {
-            academicYearId: currentAcademicYear.id,
-          },
-          include: {
-            students: {
-              include: {
-                parent: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                  },
-                },
-                marks: {
-                  where: {
-                    academicYearId: currentAcademicYear.id,
-                  },
-                  include: {
-                    subject: {
-                      select: {
-                        id: true,
-                        name: true,
-                        code: true,
-                      },
-                    },
-                  },
-                },
-                attendance: {
-                  where: {
-                    academicYearId: currentAcademicYear.id,
-                  },
+    if (session.user.role === "CLASS_TEACHER") {
+      // Get teacher's assigned classes
+      const teacher = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        include: {
+          assignedClasses: {
+            include: {
+              academicYear: {
+                select: {
+                  id: true,
+                  year: true,
+                  isActive: true,
                 },
               },
-            },
-            subjects: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
+              subjects: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                },
               },
-            },
-            _count: {
-              select: {
-                students: true,
+              _count: {
+                select: {
+                  students: true,
+                },
               },
             },
           },
         },
-      },
-    })
+      })
 
-    if (!teacher) {
-      return NextResponse.json({ error: "Teacher not found" }, { status: 404 })
+      classes = teacher?.assignedClasses || []
+    } else if (session.user.role === "SECRETARY" || session.user.role === "ADMIN") {
+      // Secretary and Admin can access all classes
+      classes = await prisma.class.findMany({
+        include: {
+          academicYear: {
+            select: {
+              id: true,
+              year: true,
+              isCurrent: true,
+            },
+          },
+          subjects: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+          classTeacher: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          _count: {
+            select: {
+              students: true,
+            },
+          },
+        },
+        orderBy: {
+          name: "asc",
+        },
+      })
     }
 
-    return NextResponse.json({
-      classes: teacher.assignedClasses,
-      academicYear: currentAcademicYear,
-    })
+    return NextResponse.json({ classes })
   } catch (error) {
-    console.error("Error fetching teacher classes:", error)
+    console.error("Error fetching classes:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

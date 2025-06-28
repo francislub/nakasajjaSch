@@ -7,80 +7,63 @@ export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || session.user.role !== "CLASS_TEACHER") {
+    if (!session || !["CLASS_TEACHER", "SECRETARY", "ADMIN"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const { searchParams } = new URL(request.url)
-    const termId = searchParams.get("termId")
+    const classId = searchParams.get("classId")
+    const academicYearId = searchParams.get("academicYearId")
 
-    // Get current academic year
-    const currentAcademicYear = await prisma.academicYear.findFirst({
-      where: { isActive: true },
-    })
+    const whereClause: any = {}
 
-    if (!currentAcademicYear) {
-      return NextResponse.json({ error: "No active academic year found" }, { status: 400 })
-    }
-
-    // Get teacher's assigned classes
-    const teacher = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      include: {
-        assignedClasses: {
-          where: {
-            academicYearId: currentAcademicYear.id,
-          },
-          select: {
-            id: true,
-            name: true,
-            // level: true,
-          },
+    // For teachers, restrict to their assigned class
+    if (session.user.role === "CLASS_TEACHER") {
+      const teacher = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        include: {
+          assignedClasses: true,
         },
-      },
-    })
+      })
 
-    if (!teacher?.assignedClasses?.length) {
-      return NextResponse.json({ error: "No classes assigned to teacher" }, { status: 400 })
+      if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
+        return NextResponse.json({ error: "No class assigned" }, { status: 400 })
+      }
+
+      whereClause.classId = teacher.assignedClasses[0].id
+    } else if (classId) {
+      // For secretary/admin, allow filtering by specific class
+      whereClause.classId = classId
     }
 
-    const classIds = teacher.assignedClasses.map((cls) => cls.id)
-
-    // Build marks filter
-    const marksWhere: any = {
-      academicYearId: currentAcademicYear.id,
-      student: {
-        classId: { in: classIds },
-      },
-    }
-
-    if (termId && termId !== "all") {
-      marksWhere.termId = termId
-    }
-
-    // Build attendance filter
-    const attendanceWhere: any = {
-      academicYearId: currentAcademicYear.id,
-      student: {
-        classId: { in: classIds },
-      },
-    }
-
-    if (termId && termId !== "all") {
-      attendanceWhere.termId = termId
-    }
-
-    // Fetch students with comprehensive data
     const students = await prisma.student.findMany({
-      where: {
-        classId: { in: classIds },
-      },
+      where: whereClause,
       include: {
         class: {
           select: {
             id: true,
             name: true,
-            // level: true,
+            classTeacher: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+            subjects: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+            academicYear: {
+              select: {
+                id: true,
+                year: true,
+                isActive: true,
+              },
+            },
           },
         },
         parent: {
@@ -91,7 +74,6 @@ export async function GET(request: Request) {
           },
         },
         marks: {
-          where: marksWhere,
           include: {
             subject: {
               select: {
@@ -107,18 +89,11 @@ export async function GET(request: Request) {
               },
             },
           },
-          orderBy: [{ term: { name: "asc" } }, { subject: { name: "asc" } }],
+          orderBy: [{ subject: { name: "asc" } }, { term: { name: "asc" } }],
         },
-        attendance: {
-          where: attendanceWhere,
-          select: {
-            id: true,
-            date: true,
-            status: true,
-            // remarks: true,
-          },
+        reportCards: {
           orderBy: {
-            date: "desc",
+            createdAt: "desc",
           },
         },
       },
@@ -127,50 +102,7 @@ export async function GET(request: Request) {
       },
     })
 
-    // Calculate statistics for each student
-    const studentsWithStats = students.map((student) => {
-      // Calculate attendance statistics
-      const totalAttendance = student.attendance.length
-      const presentCount = student.attendance.filter((att) => att.status === "PRESENT").length
-      const absentCount = student.attendance.filter((att) => att.status === "ABSENT").length
-      const lateCount = student.attendance.filter((att) => att.status === "LATE").length
-      const attendanceRate = totalAttendance > 0 ? Math.round((presentCount / totalAttendance) * 100) : 0
-
-      // Calculate academic performance
-      const validMarks = student.marks.filter((mark) => mark.total && mark.total > 0)
-      const averageMark =
-        validMarks.length > 0
-          ? Math.round(validMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / validMarks.length)
-          : 0
-
-      const highestMark = validMarks.length > 0 ? Math.max(...validMarks.map((mark) => mark.total || 0)) : 0
-      const lowestMark = validMarks.length > 0 ? Math.min(...validMarks.map((mark) => mark.total || 0)) : 0
-
-      // Get unique subjects
-      const uniqueSubjects = new Set(student.marks.map((mark) => mark.subject?.id).filter(Boolean))
-      const totalSubjects = uniqueSubjects.size
-
-      return {
-        ...student,
-        stats: {
-          attendanceRate,
-          averageMark,
-          highestMark,
-          lowestMark,
-          totalSubjects,
-          totalAttendanceDays: totalAttendance,
-          presentDays: presentCount,
-          absentDays: absentCount,
-          lateDays: lateCount,
-        },
-      }
-    })
-
-    return NextResponse.json({
-      students: studentsWithStats,
-      academicYear: currentAcademicYear,
-      classes: teacher.assignedClasses,
-    })
+    return NextResponse.json({ students })
   } catch (error) {
     console.error("Error fetching students:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

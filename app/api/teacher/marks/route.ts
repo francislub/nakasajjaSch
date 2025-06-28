@@ -14,6 +14,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const subjectId = searchParams.get("subjectId")
     const termId = searchParams.get("termId")
+    const studentId = searchParams.get("studentId")
+    const classId = searchParams.get("classId")
 
     // Get teacher's assigned classes or allow secretary/admin to access all
     let teacherClass
@@ -41,10 +43,15 @@ export async function GET(request: Request) {
       whereClause.student = {
         classId: teacherClass.id,
       }
+    } else if (classId) {
+      whereClause.student = {
+        classId: classId,
+      }
     }
 
     if (subjectId) whereClause.subjectId = subjectId
     if (termId) whereClause.termId = termId
+    if (studentId) whereClause.studentId = studentId
 
     const marks = await prisma.mark.findMany({
       where: whereClause,
@@ -54,6 +61,13 @@ export async function GET(request: Request) {
             id: true,
             name: true,
             photo: true,
+            registrationNumber: true,
+            class: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         },
         subject: {
@@ -80,7 +94,7 @@ export async function GET(request: Request) {
       orderBy: [{ student: { name: "asc" } }, { subject: { name: "asc" } }],
     })
 
-    return NextResponse.json(marks)
+    return NextResponse.json({ marks })
   } catch (error) {
     console.error("Error fetching marks:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
