@@ -4,107 +4,108 @@ import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export async function GET(request: Request) {
+  const session = await getServerSession(authOptions)
+
+  if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
-    const session = await getServerSession(authOptions)
+    const { searchParams } = new URL(request.url)
+    const academicYearId = searchParams.get("academicYearId")
+    const termId = searchParams.get("termId")
 
-    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!academicYearId) {
+      return NextResponse.json({ error: "Academic Year ID is required" }, { status: 400 })
     }
 
-    // Get active academic year
-    const activeAcademicYear = await prisma.academicYear.findFirst({
-      where: { isActive: true },
-    })
-
-    if (!activeAcademicYear) {
-      return NextResponse.json({ error: "No active academic year found" }, { status: 404 })
+    // Build where clause for students
+    const studentWhereClause: any = {
+      academicYearId: academicYearId,
     }
 
-    // Get report card stats
+    if (termId) {
+      studentWhereClause.termId = termId
+    }
+
+    // Build where clause for report cards
+    const reportCardWhereClause: any = {
+      student: studentWhereClause,
+    }
+
+    // Get total reports
     const totalReports = await prisma.reportCard.count({
-      where: {
-        student: {
-          academicYearId: activeAcademicYear.id,
-        },
-      },
+      where: reportCardWhereClause,
     })
 
+    // Get approved reports
     const approvedReports = await prisma.reportCard.count({
       where: {
+        ...reportCardWhereClause,
         isApproved: true,
-        student: {
-          academicYearId: activeAcademicYear.id,
-        },
       },
     })
 
     const pendingReports = totalReports - approvedReports
 
-    // Get grade distribution from report cards
-    const reportCards = await prisma.reportCard.findMany({
+    // Get grade distribution from marks
+    const marks = await prisma.mark.findMany({
       where: {
-        student: {
-          academicYearId: activeAcademicYear.id,
-        },
+        academicYearId: academicYearId,
+        ...(termId && { termId: termId }),
+        grade: { not: null },
+      },
+      select: {
+        grade: true,
       },
     })
 
-    // Calculate grade distribution based on personal assessment
     const gradeDistribution = {
-      A: 0,
-      B: 0,
-      C: 0,
-      D: 0,
+      A: marks.filter((m) => m.grade === "A").length,
+      B: marks.filter((m) => m.grade === "B").length,
+      C: marks.filter((m) => m.grade === "C").length,
+      D: marks.filter((m) => m.grade === "D").length,
     }
 
-    reportCards.forEach((report) => {
-      const grades = [
-        report.discipline,
-        report.cleanliness,
-        report.classWorkPresentation,
-        report.adherenceToSchool,
-        report.coCurricularActivities,
-        report.considerationToOthers,
-        report.speakingEnglish,
-      ]
-
-      grades.forEach((grade) => {
-        if (grade && gradeDistribution.hasOwnProperty(grade)) {
-          gradeDistribution[grade as keyof typeof gradeDistribution]++
-        }
-      })
-    })
-
     // Get class distribution
-    const classDistribution = await prisma.class.findMany({
-      where: {
-        academicYearId: activeAcademicYear.id,
-      },
+    const reportCardsByClass = await prisma.reportCard.findMany({
+      where: reportCardWhereClause,
       include: {
-        students: {
+        student: {
           include: {
-            reportCards: true,
+            class: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
     })
 
-    const classReportStats = classDistribution.map((cls) => ({
-      className: cls.name,
-      reportCount: cls.students.reduce((acc, student) => acc + student.reportCards.length, 0),
-    }))
+    const classDistribution = reportCardsByClass.reduce(
+      (acc, reportCard) => {
+        const className = reportCard.student?.class?.name || "Unknown"
+        const existing = acc.find((item) => item.className === className)
+        if (existing) {
+          existing.reportCount++
+        } else {
+          acc.push({ className, reportCount: 1 })
+        }
+        return acc
+      },
+      [] as Array<{ className: string; reportCount: number }>,
+    )
 
-    const stats = {
+    return NextResponse.json({
       totalReports,
       approvedReports,
       pendingReports,
       gradeDistribution,
-      classDistribution: classReportStats,
-    }
-
-    return NextResponse.json(stats)
+      classDistribution,
+    })
   } catch (error) {
     console.error("Error fetching report stats:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to fetch report stats" }, { status: 500 })
   }
 }

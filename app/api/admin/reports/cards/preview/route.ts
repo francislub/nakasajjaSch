@@ -4,13 +4,13 @@ import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export async function GET(request: Request) {
+  const session = await getServerSession(authOptions)
+
+  if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
-    const session = await getServerSession(authOptions)
-
-    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     const { searchParams } = new URL(request.url)
     const reportId = searchParams.get("reportId")
 
@@ -25,11 +25,13 @@ export async function GET(request: Request) {
           include: {
             class: {
               select: {
+                id: true,
                 name: true,
               },
             },
             parent: {
               select: {
+                id: true,
                 name: true,
                 email: true,
               },
@@ -47,18 +49,25 @@ export async function GET(request: Request) {
                     name: true,
                   },
                 },
+                createdBy: {
+                  select: {
+                    name: true,
+                  },
+                },
               },
             },
-          },
-        },
-        term: {
-          select: {
-            name: true,
-          },
-        },
-        academicYear: {
-          select: {
-            name: true,
+            term: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            academicYear: {
+              select: {
+                id: true,
+                year: true,
+              },
+            },
           },
         },
       },
@@ -68,9 +77,29 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Report card not found" }, { status: 404 })
     }
 
-    return NextResponse.json({ reportCard })
+    // Get grading system
+    const gradingSystem = await prisma.gradingSystem.findMany({
+      orderBy: {
+        minMark: "desc",
+      },
+    })
+
+    // Transform data to match frontend interface
+    const transformedReportCard = {
+      ...reportCard,
+      term: reportCard.student?.term || { name: "Unknown" },
+      academicYear: {
+        id: reportCard.student?.academicYear?.id || "",
+        name: reportCard.student?.academicYear?.year || "Unknown",
+      },
+      gradingSystem,
+    }
+
+    return NextResponse.json({
+      reportCard: transformedReportCard,
+    })
   } catch (error) {
     console.error("Error fetching report card preview:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to fetch report card preview" }, { status: 500 })
   }
 }

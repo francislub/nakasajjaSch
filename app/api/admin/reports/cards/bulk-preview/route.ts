@@ -15,7 +15,6 @@ export async function GET(request: Request) {
     const academicYearId = searchParams.get("academicYearId")
     const classId = searchParams.get("classId")
     const termId = searchParams.get("termId")
-    const search = searchParams.get("search")
     const status = searchParams.get("status")
 
     if (!academicYearId) {
@@ -27,19 +26,12 @@ export async function GET(request: Request) {
       academicYearId: academicYearId,
     }
 
-    if (classId) {
+    if (classId && classId !== "all") {
       studentWhereClause.classId = classId
     }
 
-    if (termId) {
+    if (termId && termId !== "all") {
       studentWhereClause.termId = termId
-    }
-
-    if (search) {
-      studentWhereClause.name = {
-        contains: search,
-        mode: "insensitive",
-      }
     }
 
     // Build where clause for report cards
@@ -47,10 +39,11 @@ export async function GET(request: Request) {
       student: studentWhereClause,
     }
 
-    if (status) {
+    if (status && status !== "all") {
       reportCardWhereClause.isApproved = status === "approved"
     }
 
+    // Get report cards
     const reportCards = await prisma.reportCard.findMany({
       where: reportCardWhereClause,
       include: {
@@ -70,10 +63,6 @@ export async function GET(request: Request) {
               },
             },
             marks: {
-              where: {
-                academicYearId: academicYearId,
-                ...(termId && { termId: termId }),
-              },
               include: {
                 subject: {
                   select: {
@@ -82,6 +71,11 @@ export async function GET(request: Request) {
                   },
                 },
                 term: {
+                  select: {
+                    name: true,
+                  },
+                },
+                teacher: {
                   select: {
                     name: true,
                   },
@@ -103,12 +97,30 @@ export async function GET(request: Request) {
           },
         },
       },
+      orderBy: [
+        {
+          student: {
+            class: {
+              name: "asc",
+            },
+          },
+        },
+        {
+          student: {
+            name: "asc",
+          },
+        },
+      ],
+    })
+
+    // Get grading system
+    const gradingSystem = await prisma.gradingSystem.findMany({
       orderBy: {
-        createdAt: "desc",
+        minScore: "desc",
       },
     })
 
-    // Transform data to match frontend interface
+    // Transform data
     const transformedReportCards = reportCards.map((reportCard) => ({
       ...reportCard,
       term: reportCard.student?.term || { name: "Unknown" },
@@ -120,10 +132,17 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       reportCards: transformedReportCards,
-      total: transformedReportCards.length,
+      totalCount: transformedReportCards.length,
+      gradingSystem,
+      filters: {
+        academicYear: academicYearId,
+        term: termId !== "all" ? termId : undefined,
+        class: classId !== "all" ? classId : undefined,
+        status: status !== "all" ? status : undefined,
+      },
     })
   } catch (error) {
-    console.error("Error fetching report cards:", error)
-    return NextResponse.json({ error: "Failed to fetch report cards" }, { status: 500 })
+    console.error("Error fetching bulk preview:", error)
+    return NextResponse.json({ error: "Failed to fetch bulk preview" }, { status: 500 })
   }
 }

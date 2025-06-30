@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
+    if (!session || !["ADMIN", "HEADTEACHER", "SECRETARY"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -59,16 +59,55 @@ export async function GET(request: Request) {
             email: true,
           },
         },
-        reportCards: {
-          orderBy: { createdAt: "desc" },
-        },
       },
       orderBy: { name: "asc" },
     })
 
-    return NextResponse.json({ students })
+    // Create CSV content
+    const csvHeaders = [
+      "Name",
+      "Email",
+      "Gender",
+      "Date of Birth",
+      "Class",
+      "Academic Year",
+      "Term",
+      "Parent Name",
+      "Parent Email",
+      "Phone",
+      "Address",
+      "Emergency Contact",
+      "Registration Date",
+    ]
+
+    const csvRows = students.map((student) => [
+      student.name,
+      student.email || "",
+      student.gender,
+      new Date(student.dateOfBirth).toLocaleDateString(),
+      student.class.name,
+      student.academicYear.year,
+      student.term.name,
+      student.parent?.name || "",
+      student.parent?.email || "",
+      student.phone || "",
+      student.address || "",
+      student.emergencyContact || "",
+      new Date(student.createdAt).toLocaleDateString(),
+    ])
+
+    const csvContent = [csvHeaders.join(","), ...csvRows.map((row) => row.map((field) => `"${field}"`).join(","))].join(
+      "\n",
+    )
+
+    return new NextResponse(csvContent, {
+      headers: {
+        "Content-Type": "text/csv",
+        "Content-Disposition": `attachment; filename="students-${new Date().toISOString().split("T")[0]}.csv"`,
+      },
+    })
   } catch (error) {
-    console.error("Error fetching students with reports:", error)
+    console.error("Error exporting students:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

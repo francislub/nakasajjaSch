@@ -279,20 +279,29 @@ const calculateDivision = (
           grade = gradeEntry.grade
           // Assign grade values: A=1, B=2, C=3, D=4, E=5, F=9
           switch (grade) {
-            case "A":
+            case "D1":
               gradeValue = 1
               break
-            case "B":
+            case "D2":
               gradeValue = 2
               break
-            case "C":
+            case "C3":
               gradeValue = 3
               break
-            case "D":
+            case "C4":
               gradeValue = 4
               break
-            case "E":
+            case "C5":
               gradeValue = 5
+              break
+            case "C6":
+              gradeValue = 6
+              break
+            case "P7":
+              gradeValue = 7
+              break
+            case "P8":
+              gradeValue = 8
               break
             default:
               gradeValue = 9
@@ -470,11 +479,11 @@ export default function TeacherReportsPage() {
       // Set default grading system
       const defaultGrading = [
         { id: "1", grade: "A", minMark: 80, maxMark: 100, comment: "Excellent" },
-        { id: "2", grade: "B", minMark: 70, maxMark: 79, comment: "Very Good" },
-        { id: "3", grade: "C", minMark: 60, maxMark: 69, comment: "Good" },
-        { id: "4", grade: "D", minMark: 50, maxMark: 59, comment: "Fair" },
-        { id: "5", grade: "E", minMark: 40, maxMark: 49, comment: "Pass" },
-        { id: "6", grade: "F", minMark: 0, maxMark: 39, comment: "Fail" },
+        // { id: "2", grade: "B", minMark: 70, maxMark: 79, comment: "Very Good" },
+        // { id: "3", grade: "C", minMark: 60, maxMark: 69, comment: "Good" },
+        // { id: "4", grade: "D", minMark: 50, maxMark: 59, comment: "Fair" },
+        // { id: "5", grade: "E", minMark: 40, maxMark: 49, comment: "Pass" },
+        // { id: "6", grade: "F", minMark: 0, maxMark: 39, comment: "Fail" },
       ]
       console.log("🔧 Using default grading system:", defaultGrading)
       setGradingSystem(defaultGrading)

@@ -4,83 +4,59 @@ import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export async function POST(request: Request) {
+  const session = await getServerSession(authOptions)
+
+  if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
-    const session = await getServerSession(authOptions)
+    const { classId, academicYearId, termId } = await request.json()
 
-    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!classId) {
+      return NextResponse.json({ error: "Class ID is required" }, { status: 400 })
     }
 
-    const { classId } = await request.json()
-
-    if (!classId || classId === "all") {
-      return NextResponse.json({ error: "Valid class ID is required" }, { status: 400 })
+    // Build where clause for students
+    const studentWhereClause: any = {
+      classId: classId,
     }
 
-    // Get active academic year
-    const activeAcademicYear = await prisma.academicYear.findFirst({
-      where: { isActive: true },
-    })
-
-    if (!activeAcademicYear) {
-      return NextResponse.json({ error: "No active academic year found" }, { status: 404 })
+    if (academicYearId) {
+      studentWhereClause.academicYearId = academicYearId
     }
 
-    // Get class info and report cards
-    const classInfo = await prisma.class.findUnique({
-      where: { id: classId },
-      select: {
-        name: true,
-        classTeacher: {
-          select: {
-            name: true,
-          },
-        },
-      },
-    })
+    if (termId) {
+      studentWhereClause.termId = termId
+    }
 
+    // Get report cards for the class
     const reportCards = await prisma.reportCard.findMany({
       where: {
-        student: {
-          classId: classId,
-          academicYearId: activeAcademicYear.id,
-        },
+        student: studentWhereClause,
       },
       include: {
         student: {
           include: {
-            parent: {
-              select: {
-                name: true,
-                email: true,
-                phone: true,
-              },
-            },
+            class: true,
+            parent: true,
             marks: {
+              where: {
+                ...(academicYearId && { academicYearId: academicYearId }),
+                ...(termId && { termId: termId }),
+              },
               include: {
-                subject: {
-                  select: {
-                    name: true,
-                    code: true,
-                  },
-                },
-                term: {
+                subject: true,
+                term: true,
+                teacher: {
                   select: {
                     name: true,
                   },
                 },
               },
             },
-          },
-        },
-        term: {
-          select: {
-            name: true,
-          },
-        },
-        academicYear: {
-          select: {
-            name: true,
+            term: true,
+            academicYear: true,
           },
         },
       },
@@ -91,61 +67,553 @@ export async function POST(request: Request) {
       },
     })
 
-    // Generate CSV content
-    const csvHeaders = [
-      "Student Name",
-      "Class",
-      "Term",
-      "Academic Year",
-      "Discipline",
-      "Cleanliness",
-      "Class Work Presentation",
-      "Adherence to School",
-      "Co-Curricular Activities",
-      "Consideration to Others",
-      "Speaking English",
-      "Class Teacher Comment",
-      "Headteacher Comment",
-      "Status",
-      "Parent Name",
-      "Parent Email",
-      "Parent Phone",
-      "Created Date",
-    ]
+    if (reportCards.length === 0) {
+      return NextResponse.json({ error: "No report cards found for this class" }, { status: 404 })
+    }
 
-    const csvRows = reportCards.map((report) => [
-      report.student.name,
-      classInfo?.name || "",
-      report.term?.name || "",
-      report.academicYear?.name || "",
-      report.discipline,
-      report.cleanliness,
-      report.classWorkPresentation,
-      report.adherenceToSchool,
-      report.coCurricularActivities,
-      report.considerationToOthers,
-      report.speakingEnglish,
-      report.classTeacherComment || "",
-      report.headteacherComment || "",
-      report.isApproved ? "Approved" : "Pending",
-      report.student.parent?.name || "",
-      report.student.parent?.email || "",
-      report.student.parent?.phone || "",
-      new Date(report.createdAt).toLocaleDateString(),
-    ])
+    // Get grading system
+    const gradingSystem = await prisma.gradingSystem.findMany({
+      orderBy: {
+        minScore: "desc",
+      },
+    })
 
-    const csvContent = [csvHeaders, ...csvRows].map((row) => row.map((field) => `"${field}"`).join(",")).join("\n")
+    // Generate HTML for class report cards
+    const htmlContent = generateClassReportCardsHTML(reportCards, gradingSystem)
 
-    const fileName = `${classInfo?.name || "Class"}_Report_Cards_${new Date().toISOString().split("T")[0]}.csv`
-
-    return new NextResponse(csvContent, {
+    return new Response(htmlContent, {
       headers: {
-        "Content-Type": "text/csv",
-        "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Content-Type": "text/html",
+        "Content-Disposition": `inline; filename="class-report-cards-${Date.now()}.html"`,
       },
     })
   } catch (error) {
-    console.error("Error downloading class report cards:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    console.error("Error generating class report cards:", error)
+    return NextResponse.json({ error: "Failed to generate class report cards" }, { status: 500 })
   }
+}
+
+function generateClassReportCardsHTML(reportCards: any[], gradingSystem: any[]) {
+  const gradingScaleHTML = gradingSystem
+    .map((grade) => `${grade.minScore}-${grade.maxScore}-${grade.grade}`)
+    .join(" &nbsp;&nbsp;&nbsp; ")
+
+  const className = reportCards[0]?.student?.class?.name || "Unknown Class"
+
+  const reportCardsHTML = reportCards
+    .map((reportCard, index) => {
+      const student = reportCard.student
+      const marks = student?.marks || []
+
+      // Group marks by subject for the current term
+      const subjectMarks = marks.reduce((acc: any, mark: any) => {
+        const subjectName = mark.subject?.name || "Unknown"
+        if (!acc[subjectName]) {
+          acc[subjectName] = {
+            homework: mark.homework || 0,
+            bot: mark.bot || 0,
+            midterm: mark.midterm || 0,
+            eot: mark.eot || 0,
+            total: mark.total || 0,
+            grade: mark.grade || "",
+            teacherInitial: mark.teacher?.name?.charAt(0) || "",
+            remarks: mark.remarks || "",
+          }
+        }
+        return acc
+      }, {})
+
+      // Calculate totals
+      const subjects = ["ENGLISH", "MATHEMATICS", "SCIENCE", "S.ST AND R.E"]
+      let totalHomework = 0
+      let totalBot = 0
+      let totalMidterm = 0
+      let totalEot = 0
+
+      subjects.forEach((subject) => {
+        if (subjectMarks[subject]) {
+          totalHomework += subjectMarks[subject].homework
+          totalBot += subjectMarks[subject].bot
+          totalMidterm += subjectMarks[subject].midterm
+          totalEot += subjectMarks[subject].eot
+        }
+      })
+
+      return `
+    <div class="report-card" ${index > 0 ? 'style="page-break-before: always;"' : ""}>
+        <div class="header">
+            <div class="logo-left">
+                <img src="/images/school-logo.png" alt="School Logo" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.style.display='none'">
+            </div>
+            <div class="photo-right">
+                ${
+                  student?.photo
+                    ? `<img src="${student.photo}" alt="Student Photo" style="width: 100%; height: 100%; object-fit: cover;">`
+                    : "PHOTO"
+                }
+            </div>
+            <div class="school-name">HOLY  : 
+                  'PHOTO'
+                }
+            </div>
+            <div class="school-name">HOLY FAMILY JUNIOR SCHOOL-NAKASAJJA</div>
+            <div class="motto">"TIMOR DEI PRINCIPUM SAPIENTIAE"</div>
+            <div class="contact-info">
+                P.O BOX 25258, KAMPALA 'U'<br>
+                TE: 0774-305717 / 0704-305747 / 0784-450896/0709-986390
+            </div>
+            <div class="report-title">PROGRESSIVE REPORT</div>
+        </div>
+        
+        <div class="student-info">
+            <div>NAME: <strong>${student?.name || "_".repeat(50)}</strong></div>
+            <div>DIVISION: <strong>${student?.class?.name || "_".repeat(15)}</strong></div>
+        </div>
+        
+        <div class="student-info">
+            <div>CLASS: <strong>${student?.class?.name || "_".repeat(15)}</strong></div>
+            <div>TERM: <strong>${student?.term?.name || "_".repeat(15)}</strong></div>
+            <div>DATE: <strong>${new Date().toLocaleDateString() || "_".repeat(20)}</strong></div>
+        </div>
+        
+        <div class="main-content">
+            <div class="personal-assessment">
+                <div class="personal-header">Personal Assessment</div>
+                <div class="personal-item">
+                    <span>Discipline</span>
+                    <span><strong>${reportCard.discipline || ""}</strong></span>
+                </div>
+                <div class="personal-item">
+                    <span>Cleanliness</span>
+                    <span><strong>${reportCard.cleanliness || ""}</strong></span>
+                </div>
+                <div class="personal-item">
+                    <span>Class work Presentation</span>
+                    <span><strong>${reportCard.classWorkPresentation || ""}</strong></span>
+                </div>
+                <div class="personal-item">
+                    <span>Adherence to School</span>
+                    <span><strong>${reportCard.adherenceToSchool || ""}</strong></span>
+                </div>
+                <div class="personal-item">
+                    <span>Co-curricular Activities</span>
+                    <span><strong>${reportCard.coCurricularActivities || ""}</strong></span>
+                </div>
+                <div class="personal-item">
+                    <span>Consideration to others</span>
+                    <span><strong>${reportCard.considerationToOthers || ""}</strong></span>
+                </div>
+                <div class="personal-item">
+                    <span>Speaking English</span>
+                    <span><strong>${reportCard.speakingEnglish || ""}</strong></span>
+                </div>
+            </div>
+            
+            <div class="academic-section">
+                <table class="assessment-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="2">GRADE</th>
+                            <th rowspan="2">SUBJECT ASSESSED</th>
+                            <th rowspan="2">OUT OF</th>
+                            <th rowspan="2">H.P</th>
+                            <th rowspan="2">B.O.T</th>
+                            <th rowspan="2">AG</th>
+                            <th rowspan="2">MID TERM</th>
+                            <th rowspan="2">AG</th>
+                            <th rowspan="2">E.O.T</th>
+                            <th rowspan="2">AG</th>
+                            <th rowspan="2">REMARKS</th>
+                            <th rowspan="2">INITIAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>${subjectMarks["ENGLISH"]?.grade || ""}</strong></td>
+                            <td><strong>ENGLISH</strong></td>
+                            <td><strong>100</strong></td>
+                            <td>${subjectMarks["ENGLISH"]?.homework || ""}</td>
+                            <td>${subjectMarks["ENGLISH"]?.bot || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["ENGLISH"]?.midterm || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["ENGLISH"]?.eot || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["ENGLISH"]?.remarks || ""}</td>
+                            <td><strong>${subjectMarks["ENGLISH"]?.teacherInitial || ""}</strong></td>
+                        </tr>
+                        <tr>
+                            <td><strong>${subjectMarks["MATHEMATICS"]?.grade || ""}</strong></td>
+                            <td><strong>MATHEMATICS</strong></td>
+                            <td><strong>100</strong></td>
+                            <td>${subjectMarks["MATHEMATICS"]?.homework || ""}</td>
+                            <td>${subjectMarks["MATHEMATICS"]?.bot || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["MATHEMATICS"]?.midterm || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["MATHEMATICS"]?.eot || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["MATHEMATICS"]?.remarks || ""}</td>
+                            <td><strong>${subjectMarks["MATHEMATICS"]?.teacherInitial || ""}</strong></td>
+                        </tr>
+                        <tr>
+                            <td><strong>${subjectMarks["SCIENCE"]?.grade || ""}</strong></td>
+                            <td><strong>SCIENCE</strong></td>
+                            <td><strong>100</strong></td>
+                            <td>${subjectMarks["SCIENCE"]?.homework || ""}</td>
+                            <td>${subjectMarks["SCIENCE"]?.bot || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["SCIENCE"]?.midterm || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["SCIENCE"]?.eot || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["SCIENCE"]?.remarks || ""}</td>
+                            <td><strong>${subjectMarks["SCIENCE"]?.teacherInitial || ""}</strong></td>
+                        </tr>
+                        <tr>
+                            <td><strong>${subjectMarks["S.ST AND R.E"]?.grade || ""}</strong></td>
+                            <td><strong>S.ST AND R.E</strong></td>
+                            <td><strong>100</strong></td>
+                            <td>${subjectMarks["S.ST AND R.E"]?.homework || ""}</td>
+                            <td>${subjectMarks["S.ST AND R.E"]?.bot || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["S.ST AND R.E"]?.midterm || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["S.ST AND R.E"]?.eot || ""}</td>
+                            <td></td>
+                            <td>${subjectMarks["S.ST AND R.E"]?.remarks || ""}</td>
+                            <td><strong>${subjectMarks["S.ST AND R.E"]?.teacherInitial || ""}</strong></td>
+                        </tr>
+                        <tr style="background-color: #f0f0f0;">
+                            <td></td>
+                            <td><strong>TOTAL</strong></td>
+                            <td><strong>400</strong></td>
+                            <td><strong>${totalHomework}</strong></td>
+                            <td><strong>${totalBot}</strong></td>
+                            <td></td>
+                            <td><strong>${totalMidterm}</strong></td>
+                            <td></td>
+                            <td><strong>${totalEot}</strong></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="grading-section">
+            <div class="grading-title">GRADING MARKS</div>
+            <table class="grading-table">
+                <thead>
+                    <tr>
+                        ${gradingSystem.map((grade) => `<th>${grade.minScore}-${grade.maxScore}</th>`).join("")}
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        ${gradingSystem.map((grade) => `<td><strong>${grade.grade}</strong></td>`).join("")}
+                    </tr>
+                </tbody>
+            </table>
+            <div class="grade-key">
+                <strong>KEY:</strong> &nbsp;&nbsp;&nbsp; ${gradingScaleHTML}
+            </div>
+            <div style="font-size: 9px;">
+                <strong>A-VERY GOOD &nbsp;&nbsp;&nbsp; B-GOOD &nbsp;&nbsp;&nbsp; C-FAIR &nbsp;&nbsp;&nbsp; D-NEEDS IMPROVEMENT</strong>
+            </div>
+        </div>
+        
+        <div class="comments-section">
+            <div style="margin-bottom: 12px;">
+                <strong>CLASS TEACHER'S REPORT:</strong>
+                <div class="comment-line">${reportCard.classTeacherComment || ""}</div>
+                <div style="text-align: right; margin-top: 3px;">SIGN_____________</div>
+            </div>
+            
+            <div style="margin-bottom: 12px;">
+                <strong>HEADTEACHER'S COMMENT:</strong>
+                <div class="comment-line">${reportCard.headteacherComment || ""}</div>
+                <div style="text-align: right; margin-top: 3px;">SIGN_____________</div>
+            </div>
+        </div>
+        
+        <div class="footer-info">
+            <div style="margin-bottom: 8px;">
+                <strong>NEXT TERM BEGINS ON:</strong>_________________________________
+                <strong>ENDS ON:</strong>_______________________________________________
+            </div>
+            
+            <div style="text-align: center; margin-bottom: 8px;">
+                At least 50% of the school fees should be paid before the Term Begins
+            </div>
+            
+            <div style="text-align: center; font-weight: bold;">
+                NOTE: This report is not valid without a school stamp.
+            </div>
+        </div>
+    </div>
+    `
+    })
+    .join("")
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Class Report Cards - ${className}</title>
+    <style>
+        @media print {
+            body { margin: 0; }
+            .no-print { display: none; }
+            .report-card { 
+                page-break-after: always; 
+                page-break-inside: avoid;
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+            }
+            .report-card:last-child { page-break-after: avoid; }
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: white;
+        }
+        
+        .report-card {
+            max-width: 800px;
+            margin: 0 auto 40px auto;
+            border: 3px solid #000;
+            padding: 15px;
+            background: white;
+            min-height: 95vh;
+            position: relative;
+        }
+        
+        .header {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .logo-left {
+            position: absolute;
+            left: 10px;
+            top: 10px;
+            width: 60px;
+            height: 60px;
+        }
+        
+        .photo-right {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            width: 60px;
+            height: 80px;
+            border: 1px solid #000;
+            background: #f9f9f9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+        
+        .school-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+        
+        .motto {
+            font-size: 12px;
+            font-style: italic;
+            margin-bottom: 3px;
+        }
+        
+        .contact-info {
+            font-size: 9px;
+            margin-bottom: 8px;
+        }
+        
+        .report-title {
+            font-size: 16px;
+            font-weight: bold;
+            text-decoration: underline;
+        }
+        
+        .student-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-size: 11px;
+        }
+        
+        .student-info div {
+            flex: 1;
+        }
+        
+        .main-content {
+            display: flex;
+            gap: 15px;
+            flex: 1;
+        }
+        
+        .personal-assessment {
+            width: 180px;
+        }
+        
+        .academic-section {
+            flex: 1;
+        }
+        
+        .assessment-table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 9px;
+        }
+        
+        .assessment-table th,
+        .assessment-table td {
+            border: 1px solid #000;
+            padding: 3px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        
+        .assessment-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+        }
+        
+        .personal-item {
+            border: 1px solid #000;
+            padding: 6px;
+            margin-bottom: 1px;
+            font-size: 9px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .personal-header {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            text-align: center;
+            padding: 6px;
+            border: 1px solid #000;
+            margin-bottom: 1px;
+            font-size: 10px;
+        }
+        
+        .grading-section {
+            margin-top: 15px;
+            text-align: center;
+        }
+        
+        .grading-title {
+            font-weight: bold;
+            text-decoration: underline;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        
+        .grading-table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .grading-table th,
+        .grading-table td {
+            border: 1px solid #000;
+            padding: 2px;
+            text-align: center;
+        }
+        
+        .grading-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+        }
+        
+        .grade-key {
+            font-size: 9px;
+            margin-bottom: 8px;
+        }
+        
+        .comments-section {
+            margin-top: 15px;
+            font-size: 10px;
+        }
+        
+        .comment-line {
+            border-bottom: 1px solid #000;
+            margin-bottom: 8px;
+            padding-bottom: 3px;
+            min-height: 15px;
+        }
+        
+        .footer-info {
+            margin-top: 15px;
+            font-size: 9px;
+        }
+        
+        .print-button {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            z-index: 1000;
+        }
+        
+        .print-button:hover {
+            background: #0056b3;
+        }
+        
+        .summary-info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="summary-info no-print">
+        <strong>${className} Report Cards</strong><br>
+        Total: ${reportCards.length} students<br>
+        Generated: ${new Date().toLocaleDateString()}
+    </div>
+    
+    <button class="print-button no-print" onclick="window.print()">Print Class Report Cards</button>
+    
+    ${reportCardsHTML}
+    
+    <script>
+        function printReports() {
+            window.print();
+        }
+    </script>
+</body>
+</html>
+  `
 }

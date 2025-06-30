@@ -36,3 +36,23 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
+
+export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+  try {
+    const session = await getServerSession(authOptions)
+
+    if (!session || !["HEADTEACHER", "ADMIN"].includes(session.user.role)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Delete the report card completely
+    await prisma.reportCard.delete({
+      where: { id: params.id },
+    })
+
+    return NextResponse.json({ message: "Report card deleted successfully" })
+  } catch (error) {
+    console.error("Error deleting report card:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}

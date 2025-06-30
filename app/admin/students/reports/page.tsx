@@ -11,8 +11,31 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { useToast } from "@/hooks/use-toast"
-import { Search, Eye, Download, FileText, Users, CheckCircle, Clock, X, Check } from "lucide-react"
+import {
+  Search,
+  Eye,
+  Download,
+  FileText,
+  Users,
+  CheckCircle,
+  Clock,
+  X,
+  Check,
+  Calendar,
+  BookOpen,
+  Filter,
+} from "lucide-react"
 
 interface Student {
   id: string
@@ -22,6 +45,14 @@ interface Student {
   class: {
     id: string
     name: string
+  }
+  term: {
+    id: string
+    name: string
+  }
+  academicYear: {
+    id: string
+    year: string
   }
   parent?: {
     name: string
@@ -51,34 +82,85 @@ interface Class {
   name: string
 }
 
+interface Term {
+  id: string
+  name: string
+}
+
+interface AcademicYear {
+  id: string
+  year: string
+  isActive: boolean
+}
+
 export default function AdminStudentReportsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<Class[]>([])
+  const [terms, setTerms] = useState<Term[]>([])
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedClass, setSelectedClass] = useState<string>("all")
+  const [selectedTerm, setSelectedTerm] = useState<string>("all")
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>("active")
   const [isLoading, setIsLoading] = useState(true)
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState<ReportCard | null>(null)
   const [isApprovalDialogOpen, setIsApprovalDialogOpen] = useState(false)
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null)
   const [headteacherComment, setHeadteacherComment] = useState("")
   const { toast } = useToast()
 
   useEffect(() => {
+    fetchInitialData()
+  }, [])
+
+  useEffect(() => {
     fetchStudents()
-    fetchClasses()
-  }, [selectedClass, searchTerm])
+  }, [selectedClass, selectedTerm, selectedAcademicYear, searchTerm])
+
+  const fetchInitialData = async () => {
+    try {
+      const [classesResponse, termsResponse, academicYearsResponse] = await Promise.all([
+        fetch("/api/classes"),
+        fetch("/api/terms"),
+        fetch("/api/academic-years"),
+      ])
+
+      const [classesData, termsData, academicYearsData] = await Promise.all([
+        classesResponse.json(),
+        termsResponse.json(),
+        academicYearsResponse.json(),
+      ])
+
+      setClasses(classesData || [])
+      setTerms(termsData || [])
+      setAcademicYears(academicYearsData || [])
+
+      // Set active academic year as default
+      const activeYear = academicYearsData.find((year: AcademicYear) => year.isActive)
+      if (activeYear) {
+        setSelectedAcademicYear(activeYear.id)
+      }
+    } catch (error) {
+      console.error("Error fetching initial data:", error)
+    }
+  }
 
   const fetchStudents = async () => {
+    setIsLoading(true)
     try {
       const params = new URLSearchParams()
       if (selectedClass !== "all") params.append("classId", selectedClass)
+      if (selectedTerm !== "all") params.append("termId", selectedTerm)
+      if (selectedAcademicYear !== "all") params.append("academicYearId", selectedAcademicYear)
       if (searchTerm) params.append("search", searchTerm)
 
       const response = await fetch(`/api/admin/students/reports?${params}`)
       if (response.ok) {
         const data = await response.json()
-        setStudents(data.students)
+        setStudents(data.students || [])
       }
     } catch (error) {
       console.error("Error fetching students:", error)
@@ -87,17 +169,16 @@ export default function AdminStudentReportsPage() {
     }
   }
 
-  const fetchClasses = async () => {
-    try {
-      const response = await fetch("/api/classes")
-      if (response.ok) {
-        const data = await response.json()
-        setClasses(data || [])
+  const handleConfirmAction = () => {
+    if (confirmAction && selectedReport) {
+      if (confirmAction === "approve") {
+        handleApproveReport(selectedReport.id, true)
+      } else if (confirmAction === "reject") {
+        handleApproveReport(selectedReport.id, false)
       }
-    } catch (error) {
-      console.error("Error fetching classes:", error)
-      setClasses([])
     }
+    setIsConfirmDialogOpen(false)
+    setConfirmAction(null)
   }
 
   const handleApproveReport = async (reportId: string, approve: boolean) => {
@@ -123,20 +204,16 @@ export default function AdminStudentReportsPage() {
           throw new Error("Failed to approve report card")
         }
       } else {
-        // Reject report card
+        // Reject report card - delete it completely
         const response = await fetch(`/api/report-cards/${reportId}`, {
-          method: "PATCH",
+          method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            isApproved: false,
-            headteacherComment: headteacherComment || "Report card rejected by headteacher",
-          }),
         })
 
         if (response.ok) {
           toast({
             title: "Success",
-            description: "Report card rejected",
+            description: "Report card rejected and deleted successfully",
           })
         } else {
           throw new Error("Failed to reject report card")
@@ -263,32 +340,77 @@ export default function AdminStudentReportsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <Input
-            placeholder="Search students..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Select value={selectedClass} onValueChange={setSelectedClass}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Filter by class" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Classes</SelectItem>
-            {classes &&
-              classes.length > 0 &&
-              classes.map((cls) => (
-                <SelectItem key={cls.id} value={cls.id}>
-                  {cls.name}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <Card className="bg-white shadow-lg border-0">
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Filter className="w-5 h-5 text-blue-600" />
+            <span>Filters</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                placeholder="Search students..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={selectedAcademicYear} onValueChange={setSelectedAcademicYear}>
+              <SelectTrigger>
+                <SelectValue placeholder="Academic Year" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Academic Years</SelectItem>
+                {academicYears.map((year) => (
+                  <SelectItem key={year.id} value={year.id}>
+                    <div className="flex items-center space-x-2">
+                      <span>{year.year}</span>
+                      {year.isActive && (
+                        <Badge variant="secondary" className="text-xs">
+                          Active
+                        </Badge>
+                      )}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={selectedTerm} onValueChange={setSelectedTerm}>
+              <SelectTrigger>
+                <SelectValue placeholder="Filter by term" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Terms</SelectItem>
+                {terms.map((term) => (
+                  <SelectItem key={term.id} value={term.id}>
+                    {term.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={selectedClass} onValueChange={setSelectedClass}>
+              <SelectTrigger>
+                <SelectValue placeholder="Filter by class" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Classes</SelectItem>
+                {classes.map((cls) => (
+                  <SelectItem key={cls.id} value={cls.id}>
+                    {cls.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center space-x-2">
+              <Users className="w-4 h-4 text-gray-600" />
+              <span className="text-sm text-gray-600">{filteredStudents.length} students found</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Students Table */}
       <Card className="bg-white shadow-lg border-0">
@@ -302,6 +424,8 @@ export default function AdminStudentReportsPage() {
               <TableRow>
                 <TableHead>Student</TableHead>
                 <TableHead>Class</TableHead>
+                <TableHead>Academic Year</TableHead>
+                <TableHead>Term</TableHead>
                 <TableHead>Parent</TableHead>
                 <TableHead>Report Cards</TableHead>
                 <TableHead>Status</TableHead>
@@ -328,6 +452,18 @@ export default function AdminStudentReportsPage() {
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">{student.class.name}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center space-x-1">
+                      <Calendar className="w-3 h-3 text-gray-500" />
+                      <span className="text-sm">{student.academicYear.year}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center space-x-1">
+                      <BookOpen className="w-3 h-3 text-gray-500" />
+                      <span className="text-sm">{student.term.name}</span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     {student.parent ? (
@@ -383,6 +519,7 @@ export default function AdminStudentReportsPage() {
                                 size="sm"
                                 onClick={() => {
                                   setSelectedReport(report)
+                                  setConfirmAction("approve")
                                   setIsApprovalDialogOpen(true)
                                 }}
                                 className="text-green-600 hover:text-green-700"
@@ -394,7 +531,8 @@ export default function AdminStudentReportsPage() {
                                 size="sm"
                                 onClick={() => {
                                   setSelectedReport(report)
-                                  setIsApprovalDialogOpen(true)
+                                  setConfirmAction("reject")
+                                  setIsConfirmDialogOpen(true)
                                 }}
                                 className="text-red-600 hover:text-red-700"
                               >
@@ -420,12 +558,47 @@ export default function AdminStudentReportsPage() {
         </CardContent>
       </Card>
 
+      {/* Confirmation Dialog */}
+      <AlertDialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction === "approve" ? "Approve Report Card" : "Reject Report Card"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction === "approve"
+                ? "Are you sure you want to approve this report card? This action will mark it as approved and notify the relevant parties."
+                : "Are you sure you want to reject this report card? This action will permanently delete the report card and cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setIsConfirmDialogOpen(false)
+                setConfirmAction(null)
+                setSelectedReport(null)
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmAction}
+              className={
+                confirmAction === "approve" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"
+              }
+            >
+              {confirmAction === "approve" ? "Yes, Approve" : "Yes, Reject & Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Approval Dialog */}
       <Dialog open={isApprovalDialogOpen} onOpenChange={setIsApprovalDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Review Report Card</DialogTitle>
-            <DialogDescription>Add your headteacher comment and approve or reject this report card</DialogDescription>
+            <DialogDescription>Add your headteacher comment and approve this report card</DialogDescription>
           </DialogHeader>
           {selectedReport && (
             <div className="space-y-4">
@@ -500,20 +673,20 @@ export default function AdminStudentReportsPage() {
                     setIsApprovalDialogOpen(false)
                     setHeadteacherComment("")
                     setSelectedReport(null)
+                    setConfirmAction(null)
                   }}
                 >
                   Cancel
                 </Button>
-                <Button onClick={() => handleApproveReport(selectedReport.id, false)} variant="destructive">
-                  <X className="w-4 h-4 mr-2" />
-                  Reject
-                </Button>
                 <Button
-                  onClick={() => handleApproveReport(selectedReport.id, true)}
+                  onClick={() => {
+                    setIsApprovalDialogOpen(false)
+                    setIsConfirmDialogOpen(true)
+                  }}
                   className="bg-green-600 hover:bg-green-700"
                 >
                   <Check className="w-4 h-4 mr-2" />
-                  Approve
+                  Approve Report Card
                 </Button>
               </div>
             </div>
@@ -544,6 +717,9 @@ export default function AdminStudentReportsPage() {
                 <div>
                   <h3 className="text-xl font-semibold">{selectedStudent.name}</h3>
                   <p className="text-gray-600">{selectedStudent.class.name}</p>
+                  <p className="text-sm text-gray-500">
+                    {selectedStudent.academicYear.year} - {selectedStudent.term.name}
+                  </p>
                   {selectedStudent.parent && (
                     <p className="text-sm text-gray-500">
                       Parent: {selectedStudent.parent.name} ({selectedStudent.parent.email})

@@ -54,27 +54,56 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || !["ADMIN", "SECRETARY"].includes(session.user.role)) {
+    if (!session || !["ADMIN", "HEADTEACHER", "SECRETARY"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await request.json()
-    const { name, gender, age, classId, termId, photo, parentName, parentEmail } = body
+    const {
+      name,
+      email,
+      gender,
+      age,
+      dateOfBirth,
+      address,
+      phone,
+      emergencyContact,
+      medicalInfo,
+      classId,
+      termId,
+      academicYearId,
+      parentId,
+      photo,
+    } = body
+
+    // Validate required fields
+    if (!name || !gender || !age || !dateOfBirth || !classId || !termId || !academicYearId) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
 
     const student = await prisma.student.update({
       where: { id: params.id },
       data: {
         name,
+        email: email || null,
         gender,
         age: Number.parseInt(age),
-        photo,
+        dateOfBirth: new Date(dateOfBirth),
+        address: address || null,
+        phone: phone || null,
+        emergencyContact: emergencyContact || null,
+        medicalInfo: medicalInfo || null,
         classId,
         termId,
+        academicYearId,
+        parentId: parentId || null,
+        photo: photo || null,
         updatedAt: new Date(),
       },
       include: {
         class: true,
         term: true,
+        academicYear: true,
         parent: {
           select: {
             id: true,
@@ -84,17 +113,6 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         },
       },
     })
-
-    // Update parent information if provided
-    if (parentName || parentEmail) {
-      await prisma.user.update({
-        where: { id: student.parentId },
-        data: {
-          ...(parentName && { name: parentName }),
-          ...(parentEmail && { email: parentEmail }),
-        },
-      })
-    }
 
     return NextResponse.json(student)
   } catch (error) {
@@ -107,8 +125,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
   try {
     const session = await getServerSession(authOptions)
 
-    // Allow ADMIN and SECRETARY to delete students
-    if (!session || !["ADMIN", "SECRETARY"].includes(session.user.role)) {
+    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -140,15 +157,20 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       where: { id: params.id },
     })
 
-    // Delete parent if they have no other children
-    const otherChildren = await prisma.student.findMany({
-      where: { parentId: student.parentId },
-    })
-
-    if (otherChildren.length === 0) {
-      await prisma.user.delete({
-        where: { id: student.parentId },
+    // Check if parent has other children before deleting
+    if (student.parentId) {
+      const otherChildren = await prisma.student.findMany({
+        where: {
+          parentId: student.parentId,
+          id: { not: params.id },
+        },
       })
+
+      if (otherChildren.length === 0) {
+        await prisma.user.delete({
+          where: { id: student.parentId },
+        })
+      }
     }
 
     return NextResponse.json({ message: "Student deleted successfully" })

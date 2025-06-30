@@ -9,11 +9,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { UserPlus, Lock, CheckCircle, Plus, Search } from "lucide-react"
+import { UserPlus, Plus, Search, Upload, X } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 interface Class {
   id: string
@@ -37,8 +38,6 @@ interface Parent {
 }
 
 export default function RegisterStudentPage() {
-  const [isCodeVerified, setIsCodeVerified] = useState(false)
-  const [accessCode, setAccessCode] = useState("")
   const [classes, setClasses] = useState<Class[]>([])
   const [terms, setTerms] = useState<Term[]>([])
   const [parents, setParents] = useState<Parent[]>([])
@@ -46,6 +45,8 @@ export default function RegisterStudentPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [parentSearch, setParentSearch] = useState("")
   const [showNewParent, setShowNewParent] = useState(false)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string>("")
   const { toast } = useToast()
   const router = useRouter()
   const [parentLoading, setParentLoading] = useState(false)
@@ -56,7 +57,6 @@ export default function RegisterStudentPage() {
     age: "",
     classId: "",
     termId: "",
-    photo: "",
     parentId: "",
     // New parent fields
     parentName: "",
@@ -65,32 +65,14 @@ export default function RegisterStudentPage() {
   })
 
   useEffect(() => {
-    if (isCodeVerified) {
-      fetchData()
-    }
-  }, [isCodeVerified])
+    fetchData()
+  }, [])
 
   useEffect(() => {
-    if (parentSearch && isCodeVerified) {
+    if (parentSearch) {
       fetchParents()
     }
-  }, [parentSearch, isCodeVerified])
-
-  const handleCodeVerification = () => {
-    if (accessCode === "12345") {
-      setIsCodeVerified(true)
-      toast({
-        title: "Access Granted",
-        description: "You can now register students",
-      })
-    } else {
-      toast({
-        title: "Access Denied",
-        description: "Invalid access code",
-        variant: "destructive",
-      })
-    }
-  }
+  }, [parentSearch])
 
   const fetchData = async () => {
     setLoading(true)
@@ -137,13 +119,73 @@ export default function RegisterStudentPage() {
     }
   }
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "Error",
+          description: "Image size should be less than 5MB",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (!file.type.startsWith("image/")) {
+        toast({
+          title: "Error",
+          description: "Please select a valid image file",
+          variant: "destructive",
+        })
+        return
+      }
+
+      setImageFile(file)
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setImagePreview(e.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const removeImage = () => {
+    setImageFile(null)
+    setImagePreview("")
+  }
+
+  const uploadImage = async (file: File): Promise<string> => {
+    const formData = new FormData()
+    formData.append("file", file)
+
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error("Failed to upload image")
+    }
+
+    const data = await response.json()
+    return data.url
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
     try {
+      let photoUrl = ""
+
+      // Upload image if selected
+      if (imageFile) {
+        photoUrl = await uploadImage(imageFile)
+      }
+
       const submitData = {
         ...formData,
+        photo: photoUrl,
         createNewParent: showNewParent,
       }
 
@@ -182,56 +224,12 @@ export default function RegisterStudentPage() {
 
   const selectedParent = parents.find((p) => p.id === formData.parentId)
 
-  if (!isCodeVerified) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-        <Card className="w-full max-w-md shadow-xl border-0 bg-white/95 backdrop-blur">
-          <CardHeader className="text-center space-y-4">
-            <div className="mx-auto w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center">
-              <Lock className="text-white w-10 h-10" />
-            </div>
-            <div>
-              <CardTitle className="text-2xl font-bold text-gray-900">Access Required</CardTitle>
-              <CardDescription className="text-blue-600 font-medium">
-                Enter access code to register students
-              </CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="accessCode">Access Code</Label>
-              <Input
-                id="accessCode"
-                type="password"
-                placeholder="Enter access code"
-                value={accessCode}
-                onChange={(e) => setAccessCode(e.target.value)}
-                className="text-center text-lg tracking-widest"
-              />
-            </div>
-            <Button
-              onClick={handleCodeVerification}
-              className="w-full bg-blue-600 hover:bg-blue-700"
-              disabled={!accessCode}
-            >
-              Verify Access
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
   return (
     <div className="p-6 space-y-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Register Student</h1>
           <p className="text-gray-600 mt-1">Add a new student to the system</p>
-        </div>
-        <div className="flex items-center space-x-2 text-green-600">
-          <CheckCircle className="w-5 h-5" />
-          <span className="text-sm font-medium">Access Verified</span>
         </div>
       </div>
 
@@ -248,6 +246,52 @@ export default function RegisterStudentPage() {
             {/* Student Information */}
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-gray-900 border-b border-blue-200 pb-2">Student Information</h3>
+              
+              {/* Photo Upload */}
+              <div className="flex items-center space-x-4">
+                <div className="flex-shrink-0">
+                  <Avatar className="w-24 h-24">
+                    <AvatarImage src={imagePreview || "/placeholder.svg"} alt="Student photo" />
+                    <AvatarFallback className="text-lg">
+                      {formData.name
+                        ? formData.name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")
+                            .toUpperCase()
+                        : "ST"}
+                    </AvatarFallback>
+                  </Avatar>
+                </div>
+                <div className="flex-1">
+                  <Label htmlFor="photo">Student Photo (Optional)</Label>
+                  <div className="mt-2 flex items-center space-x-2">
+                    <Input
+                      id="photo"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageChange}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById("photo")?.click()}
+                      className="flex items-center space-x-2"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Upload Photo</span>
+                    </Button>
+                    {imagePreview && (
+                      <Button type="button" variant="outline" size="sm" onClick={removeImage}>
+                        <X className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Maximum file size: 5MB. Supported formats: JPG, PNG, GIF</p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="name">Full Name *</Label>
@@ -305,7 +349,7 @@ export default function RegisterStudentPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <Label htmlFor="termId">Term *</Label>
                   <Select
                     value={formData.termId}
@@ -322,15 +366,6 @@ export default function RegisterStudentPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div>
-                  <Label htmlFor="photo">Photo URL (Optional)</Label>
-                  <Input
-                    id="photo"
-                    placeholder="Enter photo URL"
-                    value={formData.photo}
-                    onChange={(e) => setFormData({ ...formData, photo: e.target.value })}
-                  />
                 </div>
               </div>
             </div>
@@ -440,7 +475,7 @@ export default function RegisterStudentPage() {
                     </div>
                   )}
 
-                  {parentSearch && parents.length === 0 && !loading && (
+                  {parentSearch && parents.length === 0 && !parentLoading && (
                     <div className="text-center py-4 text-gray-500">
                       No parents found matching "{parentSearch}". Try a different search term or create a new parent.
                     </div>
