@@ -58,11 +58,11 @@ export async function GET(request: Request) {
     if (session.user.role === "CLASS_TEACHER") {
       const teacher = await prisma.user.findUnique({
         where: { id: session.user.id },
-        select: { assignedClasses: true },
+        select: { classId: true },
       })
 
-      if (teacher?.assignedClasses && teacher.assignedClasses.length > 0) {
-        where.classId = { in: teacher.assignedClasses.map((c: any) => c.id) }
+      if (teacher?.classId) {
+        where.classId = teacher.classId
       }
     }
 
@@ -117,8 +117,60 @@ export async function POST(request: Request) {
     } = body
 
     // Validate required fields
-    if (!name || !gender || !age || !dateOfBirth || !classId || !termId) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!name || !gender || !age || !classId || !termId) {
+      return NextResponse.json(
+        {
+          error: "Missing required fields: name, gender, age, classId, and termId are required",
+        },
+        { status: 400 },
+      )
+    }
+
+    // Validate age is a number
+    const parsedAge = Number.parseInt(age)
+    if (isNaN(parsedAge) || parsedAge < 1 || parsedAge > 100) {
+      return NextResponse.json(
+        {
+          error: "Age must be a valid number between 1 and 100",
+        },
+        { status: 400 },
+      )
+    }
+
+    // Validate gender
+    if (!["MALE", "FEMALE"].includes(gender)) {
+      return NextResponse.json(
+        {
+          error: "Gender must be either MALE or FEMALE",
+        },
+        { status: 400 },
+      )
+    }
+
+    // Validate class exists
+    const classExists = await prisma.class.findUnique({
+      where: { id: classId },
+    })
+    if (!classExists) {
+      return NextResponse.json(
+        {
+          error: "Selected class does not exist",
+        },
+        { status: 400 },
+      )
+    }
+
+    // Validate term exists
+    const termExists = await prisma.term.findUnique({
+      where: { id: termId },
+    })
+    if (!termExists) {
+      return NextResponse.json(
+        {
+          error: "Selected term does not exist",
+        },
+        { status: 400 },
+      )
     }
 
     // If no academic year specified, use the active one
@@ -134,22 +186,69 @@ export async function POST(request: Request) {
       }
     }
 
+    // Validate academic year exists
+    const academicYearExists = await prisma.academicYear.findUnique({
+      where: { id: finalAcademicYearId },
+    })
+    if (!academicYearExists) {
+      return NextResponse.json(
+        {
+          error: "Selected academic year does not exist",
+        },
+        { status: 400 },
+      )
+    }
+
+    // Validate parent exists if provided
+    if (parentId) {
+      const parentExists = await prisma.user.findUnique({
+        where: { id: parentId, role: "PARENT" },
+      })
+      if (!parentExists) {
+        return NextResponse.json(
+          {
+            error: "Selected parent does not exist or is not a parent user",
+          },
+          { status: 400 },
+        )
+      }
+    }
+
+    // Check if student with same name already exists in the same class
+    const existingStudent = await prisma.student.findFirst({
+      where: {
+        name,
+        classId,
+        academicYearId: finalAcademicYearId,
+      },
+    })
+
+    if (existingStudent) {
+      return NextResponse.json(
+        {
+          error: "A student with this name already exists in the selected class for this academic year",
+        },
+        { status: 400 },
+      )
+    }
+
     const student = await prisma.student.create({
       data: {
-        name,
-        email: email || null,
-        dateOfBirth: new Date(dateOfBirth),
+        name: name.trim(),
+        // email: email?.trim() || null,
+        // dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
         gender,
-        age: Number.parseInt(age),
-        address: address || null,
-        phone: phone || null,
+        age: parsedAge,
+        address: address?.trim() || null,
+        phone: phone?.trim() || null,
         parentId: parentId || null,
         classId,
         termId,
         academicYearId: finalAcademicYearId,
-        emergencyContact: emergencyContact || null,
-        medicalInfo: medicalInfo || null,
+        emergencyContact: emergencyContact?.trim() || null,
+        medicalInfo: medicalInfo?.trim() || null,
         photo: photo || null,
+        createdById: session.user.id,
       },
       include: {
         class: true,
@@ -168,6 +267,28 @@ export async function POST(request: Request) {
     return NextResponse.json(student, { status: 201 })
   } catch (error) {
     console.error("Error creating student:", error)
+
+    // Handle specific Prisma errors
+    if (error instanceof Error) {
+      if (error.message.includes("Unique constraint")) {
+        return NextResponse.json(
+          {
+            error: "A student with this information already exists",
+          },
+          { status: 400 },
+        )
+      }
+
+      if (error.message.includes("Foreign key constraint")) {
+        return NextResponse.json(
+          {
+            error: "Invalid reference to class, term, academic year, or parent",
+          },
+          { status: 400 },
+        )
+      }
+    }
+
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

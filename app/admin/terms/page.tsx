@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Calendar, Users } from "lucide-react"
+import { Plus, Calendar, Users, Edit, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 interface Term {
@@ -28,7 +28,11 @@ interface Term {
     id: string
     year: string
   }
-  students: any[]
+  students?: any[]
+  studentCount?: number
+  _count?: {
+    students: number
+  }
 }
 
 interface AcademicYear {
@@ -41,6 +45,7 @@ export default function TermsPage() {
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingTerm, setEditingTerm] = useState<Term | null>(null)
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
@@ -61,11 +66,16 @@ export default function TermsPage() {
         fetch("/api/academic-years"),
       ])
 
+      if (!termsResponse.ok || !academicYearsResponse.ok) {
+        throw new Error("Failed to fetch data")
+      }
+
       const [termsData, academicYearsData] = await Promise.all([termsResponse.json(), academicYearsResponse.json()])
 
-      setTerms(termsData)
-      setAcademicYears(academicYearsData)
+      setTerms(termsData || [])
+      setAcademicYears(academicYearsData || [])
     } catch (error) {
+      console.error("Error fetching data:", error)
       toast({
         title: "Error",
         description: "Failed to fetch data",
@@ -80,8 +90,11 @@ export default function TermsPage() {
     e.preventDefault()
 
     try {
-      const response = await fetch("/api/terms", {
-        method: "POST",
+      const url = editingTerm ? `/api/terms/${editingTerm.id}` : "/api/terms"
+      const method = editingTerm ? "PUT" : "POST"
+
+      const response = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       })
@@ -89,21 +102,70 @@ export default function TermsPage() {
       if (response.ok) {
         toast({
           title: "Success",
-          description: "Term created successfully",
+          description: `Term ${editingTerm ? "updated" : "created"} successfully`,
         })
         setIsDialogOpen(false)
+        setEditingTerm(null)
         setFormData({ name: "", startDate: "", endDate: "", academicYearId: "" })
         fetchData()
       } else {
-        throw new Error("Failed to create term")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to save term")
       }
     } catch (error) {
+      console.error("Error saving term:", error)
       toast({
         title: "Error",
-        description: "Failed to create term",
+        description: error instanceof Error ? error.message : "Failed to save term",
         variant: "destructive",
       })
     }
+  }
+
+  const handleEdit = (term: Term) => {
+    setEditingTerm(term)
+    setFormData({
+      name: term.name,
+      startDate: term.startDate.split("T")[0],
+      endDate: term.endDate.split("T")[0],
+      academicYearId: term.academicYear.id,
+    })
+    setIsDialogOpen(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this term?")) return
+
+    try {
+      const response = await fetch(`/api/terms/${id}`, {
+        method: "DELETE",
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: "Term deleted successfully",
+        })
+        fetchData()
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to delete term")
+      }
+    } catch (error) {
+      console.error("Error deleting term:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete term",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const getStudentCount = (term: Term): number => {
+    if (term.studentCount !== undefined) return term.studentCount
+    if (term._count?.students !== undefined) return term._count.students
+    if (term.students?.length !== undefined) return term.students.length
+    return 0
   }
 
   if (loading) {
@@ -130,8 +192,10 @@ export default function TermsPage() {
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Add Term</DialogTitle>
-              <DialogDescription>Create a new term for an academic year.</DialogDescription>
+              <DialogTitle>{editingTerm ? "Edit" : "Add"} Term</DialogTitle>
+              <DialogDescription>
+                {editingTerm ? "Update" : "Create a new"} term for an academic year.
+              </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -183,11 +247,19 @@ export default function TermsPage() {
                 />
               </div>
               <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsDialogOpen(false)
+                    setEditingTerm(null)
+                    setFormData({ name: "", startDate: "", endDate: "", academicYearId: "" })
+                  }}
+                >
                   Cancel
                 </Button>
                 <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
-                  Create
+                  {editingTerm ? "Update" : "Create"}
                 </Button>
               </div>
             </form>
@@ -199,8 +271,30 @@ export default function TermsPage() {
         {terms.map((term) => (
           <Card key={term.id} className="bg-white shadow-lg border-0 hover:shadow-xl transition-shadow">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-semibold text-gray-900">{term.name}</CardTitle>
-              <CardDescription className="text-blue-600 font-medium">{term.academicYear.year}</CardDescription>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-semibold text-gray-900">{term.name}</CardTitle>
+                <div className="flex space-x-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleEdit(term)}
+                    className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                  >
+                    <Edit className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleDelete(term.id)}
+                    className="border-red-600 text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+              <CardDescription className="text-blue-600 font-medium">
+                {term.academicYear?.year || "Unknown Academic Year"}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -210,7 +304,7 @@ export default function TermsPage() {
                 </div>
                 <div className="flex items-center text-sm text-gray-600">
                   <Users className="w-4 h-4 mr-2" />
-                  {term.students.length} students enrolled
+                  {getStudentCount(term)} students enrolled
                 </div>
               </div>
             </CardContent>

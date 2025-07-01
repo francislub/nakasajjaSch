@@ -1,12 +1,12 @@
 "use client"
 
 import type React from "react"
+
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -15,78 +15,94 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, UserCheck, Eye, Edit, Trash2, Search, Users } from "lucide-react"
+import { Plus, User, Edit, Trash2, Eye, BookOpen } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 interface Teacher {
   id: string
-  email: string
   name: string
-  role: string
+  email?: string
+  phone?: string
+  address?: string
+  qualification?: string
+  experience?: number
+  isActive: boolean
   createdAt: string
-  assignedClasses?: {
+  subjectAssignments: {
     id: string
-    name: string
+    subject: {
+      id: string
+      name: string
+      code: string
+    }
+    class: {
+      id: string
+      name: string
+    }
+    term: {
+      id: string
+      name: string
+    }
+    academicYear: {
+      id: string
+      year: string
+    }
   }[]
-}
-
-interface Class {
-  id: string
-  name: string
 }
 
 export default function TeachersPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([])
-  const [classes, setClasses] = useState<Class[]>([])
   const [loading, setLoading] = useState(true)
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
-  const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null)
-  const [searchTerm, setSearchTerm] = useState("")
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
+  const [viewingTeacher, setViewingTeacher] = useState<Teacher | null>(null)
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
-    email: "",
-    password: "",
     name: "",
-    classIds: [] as string[],
+    email: "",
+    phone: "",
+    address: "",
+    qualification: "",
+    experience: "",
+  })
+
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    qualification: "",
+    experience: "",
+    isActive: true,
   })
 
   useEffect(() => {
-    fetchData()
+    fetchTeachers()
   }, [])
 
-  const fetchData = async () => {
+  const fetchTeachers = async () => {
     try {
-      const [teachersResponse, classesResponse] = await Promise.all([
-        fetch("/api/users/teachers"),
-        fetch("/api/classes"),
-      ])
-
-      const [teachersData, classesData] = await Promise.all([teachersResponse.json(), classesResponse.json()])
-
-      setTeachers(teachersData)
-      setClasses(classesData)
+      const response = await fetch("/api/teachers")
+      if (response.ok) {
+        const data = await response.json()
+        setTeachers(Array.isArray(data) ? data : [])
+      } else {
+        console.error("Failed to fetch teachers:", response.statusText)
+        setTeachers([])
+      }
     } catch (error) {
+      console.error("Error fetching teachers:", error)
       toast({
         title: "Error",
-        description: "Failed to fetch data",
+        description: "Failed to fetch teachers",
         variant: "destructive",
       })
+      setTeachers([])
     } finally {
       setLoading(false)
     }
@@ -96,13 +112,10 @@ export default function TeachersPage() {
     e.preventDefault()
 
     try {
-      const response = await fetch("/api/users/teachers", {
+      const response = await fetch("/api/teachers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-          role: "CLASS_TEACHER",
-        }),
+        body: JSON.stringify(formData),
       })
 
       if (response.ok) {
@@ -110,12 +123,12 @@ export default function TeachersPage() {
           title: "Success",
           description: "Teacher created successfully",
         })
-        setIsAddDialogOpen(false)
-        resetForm()
-        fetchData()
+        setIsDialogOpen(false)
+        setFormData({ name: "", email: "", phone: "", address: "", qualification: "", experience: "" })
+        fetchTeachers()
       } else {
-        const error = await response.json()
-        throw new Error(error.error || "Failed to create teacher")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to create teacher")
       }
     } catch (error) {
       toast({
@@ -126,15 +139,30 @@ export default function TeachersPage() {
     }
   }
 
-  const handleEdit = async (e: React.FormEvent) => {
+  const handleEdit = (teacher: Teacher) => {
+    setEditingTeacher(teacher)
+    setEditFormData({
+      name: teacher.name,
+      email: teacher.email || "",
+      phone: teacher.phone || "",
+      address: teacher.address || "",
+      qualification: teacher.qualification || "",
+      experience: teacher.experience?.toString() || "",
+      isActive: teacher.isActive,
+    })
+    setIsEditDialogOpen(true)
+  }
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedTeacher) return
+
+    if (!editingTeacher) return
 
     try {
-      const response = await fetch(`/api/users/teachers/${selectedTeacher.id}`, {
+      const response = await fetch(`/api/teachers/${editingTeacher.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(editFormData),
       })
 
       if (response.ok) {
@@ -143,11 +171,11 @@ export default function TeachersPage() {
           description: "Teacher updated successfully",
         })
         setIsEditDialogOpen(false)
-        resetForm()
-        fetchData()
+        setEditingTeacher(null)
+        fetchTeachers()
       } else {
-        const error = await response.json()
-        throw new Error(error.error || "Failed to update teacher")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update teacher")
       }
     } catch (error) {
       toast({
@@ -159,8 +187,10 @@ export default function TeachersPage() {
   }
 
   const handleDelete = async (teacherId: string) => {
+    if (!confirm("Are you sure you want to delete this teacher? This will also remove all subject assignments.")) return
+
     try {
-      const response = await fetch(`/api/users/teachers/${teacherId}`, {
+      const response = await fetch(`/api/teachers/${teacherId}`, {
         method: "DELETE",
       })
 
@@ -169,51 +199,23 @@ export default function TeachersPage() {
           title: "Success",
           description: "Teacher deleted successfully",
         })
-        fetchData()
+        fetchTeachers()
       } else {
-        const error = await response.json()
-        throw new Error(error.error || "Failed to delete teacher")
+        throw new Error("Failed to delete teacher")
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete teacher",
+        description: "Failed to delete teacher",
         variant: "destructive",
       })
     }
   }
 
-  const resetForm = () => {
-    setFormData({
-      email: "",
-      password: "",
-      name: "",
-      classIds: [],
-    })
-    setSelectedTeacher(null)
-  }
-
-  const openEditDialog = (teacher: Teacher) => {
-    setSelectedTeacher(teacher)
-    setFormData({
-      email: teacher.email,
-      password: "",
-      name: teacher.name,
-      classIds: teacher.assignedClasses?.map((c) => c.id) || [],
-    })
-    setIsEditDialogOpen(true)
-  }
-
-  const openViewDialog = (teacher: Teacher) => {
-    setSelectedTeacher(teacher)
+  const handleView = (teacher: Teacher) => {
+    setViewingTeacher(teacher)
     setIsViewDialogOpen(true)
   }
-
-  const filteredTeachers = teachers.filter(
-    (teacher) =>
-      teacher.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      teacher.email.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
 
   if (loading) {
     return (
@@ -224,30 +226,27 @@ export default function TeachersPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-gradient-to-br from-green-50 to-emerald-100 min-h-screen">
+    <div className="p-6 space-y-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <UserCheck className="w-8 h-8 text-green-600" />
-            Teachers Management
-          </h1>
-          <p className="text-gray-600 mt-1">Manage class teachers and their assignments</p>
+          <h1 className="text-3xl font-bold text-gray-900">Subject Teachers</h1>
+          <p className="text-gray-600 mt-1">Manage teachers who teach specific subjects (no login access)</p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-green-600 hover:bg-green-700">
+            <Button className="bg-blue-600 hover:bg-blue-700">
               <Plus className="w-4 h-4 mr-2" />
               Add Teacher
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Add New Teacher</DialogTitle>
-              <DialogDescription>Create a new teacher account and assign classes.</DialogDescription>
+              <DialogTitle>Add Subject Teacher</DialogTitle>
+              <DialogDescription>Create a new teacher account for subject teaching.</DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="name">Full Name</Label>
+                <Label htmlFor="name">Full Name *</Label>
                 <Input
                   id="name"
                   placeholder="Enter full name"
@@ -257,51 +256,48 @@ export default function TeachersPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">Email (Optional)</Label>
                 <Input
                   id="email"
                   type="email"
                   placeholder="Enter email address"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
                 />
               </div>
               <div>
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="phone">Phone Number</Label>
                 <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  required
+                  id="phone"
+                  placeholder="Enter phone number"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 />
               </div>
               <div>
-                <Label htmlFor="classes">Assign Classes (Optional)</Label>
-                <Select
-                  value={formData.classIds[0] || ""}
-                  onValueChange={(value) => setFormData({ ...formData, classIds: value ? [value] : [] })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select class to assign" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No class assignment</SelectItem>
-                    {classes.map((classData) => (
-                      <SelectItem key={classData.id} value={classData.id}>
-                        {classData.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="qualification">Qualification</Label>
+                <Input
+                  id="qualification"
+                  placeholder="e.g., Bachelor of Education"
+                  value={formData.qualification}
+                  onChange={(e) => setFormData({ ...formData, qualification: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="experience">Years of Experience</Label>
+                <Input
+                  id="experience"
+                  type="number"
+                  placeholder="Enter years of experience"
+                  value={formData.experience}
+                  onChange={(e) => setFormData({ ...formData, experience: e.target.value })}
+                />
               </div>
               <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
                   Create Teacher
                 </Button>
               </div>
@@ -310,122 +306,21 @@ export default function TeachersPage() {
         </Dialog>
       </div>
 
-      {/* Search Bar */}
-      <div className="flex items-center space-x-2">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <Input
-            placeholder="Search teachers..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Badge variant="secondary" className="text-sm">
-          <Users className="w-3 h-3 mr-1" />
-          {filteredTeachers.length} Teachers
-        </Badge>
-      </div>
-
-      {/* Teachers Table */}
-      <Card className="bg-white shadow-lg border-0">
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <UserCheck className="w-5 h-5 text-green-600" />
-            <span>Class Teachers</span>
-          </CardTitle>
-          <CardDescription>Manage teacher accounts and class assignments</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Assigned Classes</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredTeachers.map((teacher) => (
-                <TableRow key={teacher.id}>
-                  <TableCell className="font-medium">{teacher.name}</TableCell>
-                  <TableCell>{teacher.email}</TableCell>
-                  <TableCell>
-                    {teacher.assignedClasses && teacher.assignedClasses.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {teacher.assignedClasses.map((classData) => (
-                          <Badge key={classData.id} className="bg-blue-100 text-blue-800">
-                            {classData.name}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-gray-500">No classes assigned</span>
-                    )}
-                  </TableCell>
-                  <TableCell>{new Date(teacher.createdAt).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <div className="flex space-x-2">
-                      <Button size="sm" variant="outline" onClick={() => openViewDialog(teacher)}>
-                        <Eye className="w-3 h-3 mr-1" />
-                        View
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => openEditDialog(teacher)}>
-                        <Edit className="w-3 h-3 mr-1" />
-                        Edit
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700">
-                            <Trash2 className="w-3 h-3 mr-1" />
-                            Delete
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This action cannot be undone. This will permanently delete the teacher account for{" "}
-                              {teacher.name}.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDelete(teacher.id)}
-                              className="bg-red-600 hover:bg-red-700"
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* Edit Dialog */}
+      {/* Edit Teacher Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Teacher</DialogTitle>
-            <DialogDescription>Update teacher information and class assignments.</DialogDescription>
+            <DialogDescription>Update teacher information.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleEdit} className="space-y-4">
+          <form onSubmit={handleEditSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="edit-name">Full Name</Label>
+              <Label htmlFor="edit-name">Full Name *</Label>
               <Input
                 id="edit-name"
                 placeholder="Enter full name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                value={editFormData.name}
+                onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
                 required
               />
             </div>
@@ -435,45 +330,43 @@ export default function TeachersPage() {
                 id="edit-email"
                 type="email"
                 placeholder="Enter email address"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
+                value={editFormData.email}
+                onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
               />
             </div>
             <div>
-              <Label htmlFor="edit-password">New Password (Optional)</Label>
+              <Label htmlFor="edit-phone">Phone Number</Label>
               <Input
-                id="edit-password"
-                type="password"
-                placeholder="Leave blank to keep current password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                id="edit-phone"
+                placeholder="Enter phone number"
+                value={editFormData.phone}
+                onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
               />
             </div>
             <div>
-              <Label htmlFor="edit-classes">Assign Classes</Label>
-              <Select
-                value={formData.classIds[0] || ""}
-                onValueChange={(value) => setFormData({ ...formData, classIds: value ? [value] : [] })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select class to assign" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No class assignment</SelectItem>
-                  {classes.map((classData) => (
-                    <SelectItem key={classData.id} value={classData.id}>
-                      {classData.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="edit-qualification">Qualification</Label>
+              <Input
+                id="edit-qualification"
+                placeholder="e.g., Bachelor of Education"
+                value={editFormData.qualification}
+                onChange={(e) => setEditFormData({ ...editFormData, qualification: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-experience">Years of Experience</Label>
+              <Input
+                id="edit-experience"
+                type="number"
+                placeholder="Enter years of experience"
+                value={editFormData.experience}
+                onChange={(e) => setEditFormData({ ...editFormData, experience: e.target.value })}
+              />
             </div>
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" className="bg-green-600 hover:bg-green-700">
+              <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
                 Update Teacher
               </Button>
             </div>
@@ -481,52 +374,158 @@ export default function TeachersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* View Dialog */}
+      {/* View Teacher Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Teacher Details</DialogTitle>
-            <DialogDescription>View teacher information and assignments.</DialogDescription>
+            <DialogDescription>View teacher information and subject assignments.</DialogDescription>
           </DialogHeader>
-          {selectedTeacher && (
+          {viewingTeacher && (
             <div className="space-y-4">
-              <div>
-                <Label className="text-sm font-medium text-gray-500">Full Name</Label>
-                <p className="text-sm font-medium">{selectedTeacher.name}</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Name</Label>
+                  <p className="text-sm font-semibold">{viewingTeacher.name}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Email</Label>
+                  <p className="text-sm">{viewingTeacher.email || "Not provided"}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Phone</Label>
+                  <p className="text-sm">{viewingTeacher.phone || "Not provided"}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Experience</Label>
+                  <p className="text-sm">
+                    {viewingTeacher.experience ? `${viewingTeacher.experience} years` : "Not specified"}
+                  </p>
+                </div>
               </div>
               <div>
-                <Label className="text-sm font-medium text-gray-500">Email</Label>
-                <p className="text-sm">{selectedTeacher.email}</p>
+                <Label className="text-sm font-medium text-gray-500">Qualification</Label>
+                <p className="text-sm">{viewingTeacher.qualification || "Not provided"}</p>
               </div>
               <div>
-                <Label className="text-sm font-medium text-gray-500">Role</Label>
-                <Badge className="bg-green-100 text-green-800">
-                  <UserCheck className="w-3 h-3 mr-1" />
-                  Class Teacher
-                </Badge>
-              </div>
-              <div>
-                <Label className="text-sm font-medium text-gray-500">Assigned Classes</Label>
-                {selectedTeacher.assignedClasses && selectedTeacher.assignedClasses.length > 0 ? (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {selectedTeacher.assignedClasses.map((classData) => (
-                      <Badge key={classData.id} variant="outline">
-                        {classData.name}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">No classes assigned</p>
-                )}
-              </div>
-              <div>
-                <Label className="text-sm font-medium text-gray-500">Created</Label>
-                <p className="text-sm">{new Date(selectedTeacher.createdAt).toLocaleDateString()}</p>
+                <Label className="text-sm font-medium text-gray-500">Subject Assignments</Label>
+                <div className="space-y-2 mt-2">
+                  {viewingTeacher.subjectAssignments.length > 0 ? (
+                    viewingTeacher.subjectAssignments.map((assignment) => (
+                      <div key={assignment.id} className="p-2 bg-gray-50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-sm">{assignment.subject.name}</p>
+                            <p className="text-xs text-gray-600">
+                              {assignment.class.name} - {assignment.term.name} ({assignment.academicYear.year})
+                            </p>
+                          </div>
+                          <Badge variant="outline">{assignment.subject.code}</Badge>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-500">No subject assignments</p>
+                  )}
+                </div>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <Card className="bg-white shadow-lg border-0">
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <User className="w-5 h-5 text-blue-600" />
+            <span>Subject Teachers</span>
+          </CardTitle>
+          <CardDescription>Teachers assigned to specific subjects (no system login access)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead>Qualification</TableHead>
+                <TableHead>Experience</TableHead>
+                <TableHead>Subject Assignments</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {teachers.map((teacher) => (
+                <TableRow key={teacher.id}>
+                  <TableCell className="font-medium">{teacher.name}</TableCell>
+                  <TableCell>
+                    <div className="space-y-1">
+                      {teacher.email && <p className="text-sm">{teacher.email}</p>}
+                      {teacher.phone && <p className="text-sm text-gray-600">{teacher.phone}</p>}
+                      {!teacher.email && !teacher.phone && (
+                        <span className="text-gray-500 text-sm">No contact info</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm">{teacher.qualification || "Not specified"}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm">
+                      {teacher.experience ? `${teacher.experience} years` : "Not specified"}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center space-x-2">
+                      <BookOpen className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-medium">{teacher.subjectAssignments.length}</span>
+                      <span className="text-sm text-gray-600">subjects</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge className={teacher.isActive ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
+                      {teacher.isActive ? "Active" : "Inactive"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex space-x-2">
+                      <Button size="sm" variant="outline" onClick={() => handleView(teacher)}>
+                        <Eye className="w-3 h-3 mr-1" />
+                        View
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleEdit(teacher)}>
+                        <Edit className="w-3 h-3 mr-1" />
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDelete(teacher.id)}
+                        className="border-red-600 text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" />
+                        Delete
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {teachers.length === 0 && (
+            <div className="text-center py-12">
+              <User className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Teachers</h3>
+              <p className="text-gray-600 mb-4">Get started by adding your first subject teacher.</p>
+              <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setIsDialogOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Teacher
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

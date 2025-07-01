@@ -12,7 +12,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     const body = await request.json()
-    const { name, code, classId } = body
+    const { name, code, classId, category } = body
 
     const subject = await prisma.subject.update({
       where: { id: params.id },
@@ -20,9 +20,38 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         name,
         code,
         classId,
+        category,
       },
       include: {
-        class: true,
+        class: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        subjectTeachers: {
+          include: {
+            teacher: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+            term: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            academicYear: {
+              select: {
+                id: true,
+                year: true,
+              },
+            },
+          },
+        },
       },
     })
 
@@ -41,6 +70,12 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Delete related subject teacher assignments first
+    await prisma.subjectTeacher.deleteMany({
+      where: { subjectId: params.id },
+    })
+
+    // Delete the subject
     await prisma.subject.delete({
       where: { id: params.id },
     })

@@ -7,7 +7,7 @@ export const DIVISION_RANGES = {
   DIVISION_3: { min: 25, max: 32, label: "Division III" },
   DIVISION_4: { min: 33, max: 35, label: "Division IV" },
   UNGRADED: { min: 36, max: 36, label: "U" },
-  FAIL: { min: 37, max: Infinity, label: "X" },
+  FAIL: { min: 37, max: Number.POSITIVE_INFINITY, label: "X" },
 } as const
 
 export type DivisionType = "DIVISION_1" | "DIVISION_2" | "DIVISION_3" | "DIVISION_4" | "UNGRADED" | "FAIL"
@@ -67,11 +67,11 @@ export async function getGradeValues(): Promise<GradeValue[]> {
     // Return default values on error
     return [
       { grade: "A", value: 1, minScore: 80, maxScore: 100 },
-      { grade: "B", value: 2, minScore: 70, maxScore: 79 },
-      { grade: "C", value: 3, minScore: 60, maxScore: 69 },
-      { grade: "D", value: 4, minScore: 50, maxScore: 59 },
-      { grade: "E", value: 5, minScore: 40, maxScore: 49 },
-      { grade: "F", value: 9, minScore: 0, maxScore: 39 },
+      // { grade: "B", value: 2, minScore: 70, maxScore: 79 },
+      // { grade: "C", value: 3, minScore: 60, maxScore: 69 },
+      // { grade: "D", value: 4, minScore: 50, maxScore: 59 },
+      // { grade: "E", value: 5, minScore: 40, maxScore: 49 },
+      // { grade: "F", value: 9, minScore: 0, maxScore: 39 },
     ]
   }
 }
@@ -142,7 +142,7 @@ export function getDivisionColor(division: DivisionType): string {
 
 /**
  * Calculate student division for a specific exam type
- * Only considers the top 4 subjects with the best grades
+ * Only considers the top 4 GENERAL subjects with the best grades
  */
 export async function calculateStudentDivision(
   studentId: string,
@@ -164,6 +164,7 @@ export async function calculateStudentDivision(
     }
 
     // Get student's marks for the specified exam type, term, and academic year
+    // Only include GENERAL subjects for division calculation
     const marks = await prisma.mark.findMany({
       where: {
         studentId,
@@ -172,6 +173,7 @@ export async function calculateStudentDivision(
         academicYearId: currentAcademicYearId,
         subject: {
           classId: classId,
+          category: "GENERAL", // Only consider GENERAL subjects
         },
       },
       include: {
@@ -180,6 +182,7 @@ export async function calculateStudentDivision(
             id: true,
             name: true,
             code: true,
+            category: true,
           },
         },
       },
@@ -212,7 +215,7 @@ export async function calculateStudentDivision(
       {} as Record<
         string,
         {
-          subject: { id: string; name: string; code: string | null }
+          subject: { id: string; name: string; code: string | null; category: string }
           scores: number[]
           totalScore: number
           count: number
@@ -238,12 +241,12 @@ export async function calculateStudentDivision(
     // Sort by grade value (best grades first) and take top 4 subjects
     const top4Subjects = subjectGrades.sort((a, b) => a.gradeValue - b.gradeValue).slice(0, 4)
 
-    // If we don't have 4 subjects, we can't calculate division
+    // If we don't have 4 GENERAL subjects, we can't calculate division
     if (top4Subjects.length < 4) {
       return null
     }
 
-    // Calculate aggregate (sum of grade values for top 4 subjects)
+    // Calculate aggregate (sum of grade values for top 4 GENERAL subjects)
     const aggregate = top4Subjects.reduce((sum, subject) => sum + subject.gradeValue, 0)
 
     // Determine division
@@ -287,13 +290,7 @@ export async function calculateClassDivisions(
 
     // Calculate division for each student
     for (const student of students) {
-      divisions[student.id] = await calculateStudentDivision(
-        student.id,
-        classId,
-        termId,
-        examType,
-        academicYearId,
-      )
+      divisions[student.id] = await calculateStudentDivision(student.id, classId, termId, examType, academicYearId)
     }
 
     return divisions

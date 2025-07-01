@@ -18,8 +18,9 @@ model User {
   createdBy String?
   updatedBy String?
 
-  // Class Teacher specific fields - Made optional and one-to-many
-  assignedClasses Class[] @relation("ClassTeacher")
+  // Class Teacher specific fields - Removed @unique constraint
+  classId   String? @db.ObjectId
+  class     Class?  @relation("ClassTeacher", fields: [classId], references: [id])
 
   // Parent specific fields
   children Student[] @relation("ParentChildren")
@@ -31,6 +32,44 @@ model User {
   createdAttendance Attendance[] @relation("AttendanceCreatedBy")
 
   @@map("users")
+}
+
+model Teacher {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  email     String?  @unique
+  phone     String?
+  address   String?
+  qualification String?
+  experience Int?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Subject assignments
+  subjectAssignments SubjectTeacher[]
+
+  @@map("teachers")
+}
+
+model SubjectTeacher {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  teacherId      String      @db.ObjectId
+  teacher        Teacher     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  subjectId      String      @db.ObjectId
+  subject        Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  classId        String      @db.ObjectId
+  class          Class       @relation(fields: [classId], references: [id], onDelete: Cascade)
+  termId         String      @db.ObjectId
+  term           Term        @relation(fields: [termId], references: [id], onDelete: Cascade)
+  academicYearId String      @db.ObjectId
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  // Ensure one teacher per subject per class per term per academic year
+  @@unique([subjectId, classId, termId, academicYearId])
+  @@map("subject_teachers")
 }
 
 model AcademicYear {
@@ -47,6 +86,8 @@ model AcademicYear {
   classes   Class[]
   marks     Mark[]
   attendance Attendance[]
+  subjectTeachers SubjectTeacher[]
+  subjects  Subject[] @relation("SubjectAcademicYear")
 
   @@map("academic_years")
 }
@@ -64,6 +105,7 @@ model Term {
   students   Student[]
   marks      Mark[]
   attendance Attendance[]
+  subjectTeachers SubjectTeacher[]
 
   @@map("terms")
 }
@@ -73,15 +115,17 @@ model Class {
   name           String
   academicYearId String?     @db.ObjectId
   academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id])
-  classTeacherId String?     @db.ObjectId
-  classTeacher   User?       @relation("ClassTeacher", fields: [classTeacherId], references: [id])
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
+  // Changed to one-to-many relationship to allow multiple class teachers
+  classTeachers User[]      @relation("ClassTeacher")
+  
   students     Student[]
   subjects     Subject[]
   marks        Mark[]
   attendance   Attendance[]
+  subjectTeachers SubjectTeacher[]
 
   @@map("classes")
 }
@@ -90,12 +134,16 @@ model Subject {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   name      String
   code      String?
+  category  SubjectCategory @default(GENERAL)
   classId   String?  @db.ObjectId
   class     Class?   @relation(fields: [classId], references: [id])
+  academicYearId String? @db.ObjectId
+  academicYear   AcademicYear? @relation("SubjectAcademicYear", fields: [academicYearId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   marks Mark[]
+  subjectTeachers SubjectTeacher[]
 
   @@map("subjects")
 }
@@ -103,9 +151,15 @@ model Subject {
 model Student {
   id             String      @id @default(auto()) @map("_id") @db.ObjectId
   name           String
+  email          String?
+  dateOfBirth    DateTime?
   gender         Gender?
   age            Int?
+  address        String?
+  phone          String?
   photo          String?
+  emergencyContact String?
+  medicalInfo    String?
   classId        String?     @db.ObjectId
   class          Class?      @relation(fields: [classId], references: [id])
   termId         String?     @db.ObjectId
@@ -235,4 +289,9 @@ enum AttendanceStatus {
   PRESENT
   ABSENT
   LATE
+}
+
+enum SubjectCategory {
+  GENERAL
+  SUBSIDIARY
 }

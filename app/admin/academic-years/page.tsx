@@ -26,9 +26,17 @@ interface AcademicYear {
   startDate: string
   endDate: string
   isActive: boolean
-  terms: any[]
-  classes: any[]
-  students: any[]
+  terms?: any[]
+  classes?: any[]
+  students?: any[]
+  termsCount?: number
+  classesCount?: number
+  studentsCount?: number
+  _count?: {
+    terms: number
+    classes: number
+    students: number
+  }
 }
 
 export default function AcademicYearsPage() {
@@ -52,9 +60,13 @@ export default function AcademicYearsPage() {
   const fetchAcademicYears = async () => {
     try {
       const response = await fetch("/api/academic-years")
+      if (!response.ok) {
+        throw new Error("Failed to fetch academic years")
+      }
       const data = await response.json()
-      setAcademicYears(data)
+      setAcademicYears(data || [])
     } catch (error) {
+      console.error("Error fetching academic years:", error)
       toast({
         title: "Error",
         description: "Failed to fetch academic years",
@@ -88,12 +100,14 @@ export default function AcademicYearsPage() {
         setFormData({ year: "", startDate: "", endDate: "", isActive: false })
         fetchAcademicYears()
       } else {
-        throw new Error("Failed to save academic year")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to save academic year")
       }
     } catch (error) {
+      console.error("Error saving academic year:", error)
       toast({
         title: "Error",
-        description: "Failed to save academic year",
+        description: error instanceof Error ? error.message : "Failed to save academic year",
         variant: "destructive",
       })
     }
@@ -125,15 +139,38 @@ export default function AcademicYearsPage() {
         })
         fetchAcademicYears()
       } else {
-        throw new Error("Failed to delete academic year")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to delete academic year")
       }
     } catch (error) {
+      console.error("Error deleting academic year:", error)
       toast({
         title: "Error",
-        description: "Failed to delete academic year",
+        description: error instanceof Error ? error.message : "Failed to delete academic year",
         variant: "destructive",
       })
     }
+  }
+
+  const getTermsCount = (year: AcademicYear): number => {
+    if (year.termsCount !== undefined) return year.termsCount
+    if (year._count?.terms !== undefined) return year._count.terms
+    if (year.terms?.length !== undefined) return year.terms.length
+    return 0
+  }
+
+  const getClassesCount = (year: AcademicYear): number => {
+    if (year.classesCount !== undefined) return year.classesCount
+    if (year._count?.classes !== undefined) return year._count.classes
+    if (year.classes?.length !== undefined) return year.classes.length
+    return 0
+  }
+
+  const getStudentsCount = (year: AcademicYear): number => {
+    if (year.studentsCount !== undefined) return year.studentsCount
+    if (year._count?.students !== undefined) return year._count.students
+    if (year.students?.length !== undefined) return year.students.length
+    return 0
   }
 
   if (loading) {
@@ -205,7 +242,15 @@ export default function AcademicYearsPage() {
                 <Label htmlFor="isActive">Set as Active Academic Year</Label>
               </div>
               <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsDialogOpen(false)
+                    setEditingYear(null)
+                    setFormData({ year: "", startDate: "", endDate: "", isActive: false })
+                  }}
+                >
                   Cancel
                 </Button>
                 <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
@@ -236,21 +281,21 @@ export default function AcademicYearsPage() {
                     <Calendar className="w-4 h-4 text-blue-600" />
                   </div>
                   <p className="text-sm text-gray-600">Terms</p>
-                  <p className="font-semibold text-gray-900">{year.terms.length}</p>
+                  <p className="font-semibold text-gray-900">{getTermsCount(year)}</p>
                 </div>
                 <div>
                   <div className="flex items-center justify-center w-8 h-8 bg-green-100 rounded-full mx-auto mb-1">
                     <BookOpen className="w-4 h-4 text-green-600" />
                   </div>
                   <p className="text-sm text-gray-600">Classes</p>
-                  <p className="font-semibold text-gray-900">{year.classes.length}</p>
+                  <p className="font-semibold text-gray-900">{getClassesCount(year)}</p>
                 </div>
                 <div>
                   <div className="flex items-center justify-center w-8 h-8 bg-purple-100 rounded-full mx-auto mb-1">
                     <Users className="w-4 h-4 text-purple-600" />
                   </div>
                   <p className="text-sm text-gray-600">Students</p>
-                  <p className="font-semibold text-gray-900">{year.students.length}</p>
+                  <p className="font-semibold text-gray-900">{getStudentsCount(year)}</p>
                 </div>
               </div>
               <div className="flex justify-end space-x-2">

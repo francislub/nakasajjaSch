@@ -80,6 +80,15 @@ export async function POST(request: Request) {
     return NextResponse.json(secretary, { status: 201 })
   } catch (error) {
     console.error("Error creating secretary:", error)
+
+    // Handle specific Prisma errors
+    if (error.code === "P2002") {
+      const target = error.meta?.target
+      if (target?.includes("email")) {
+        return NextResponse.json({ error: "User with this email already exists" }, { status: 400 })
+      }
+    }
+
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

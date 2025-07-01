@@ -11,27 +11,22 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { searchParams } = new URL(request.url)
-    const classId = searchParams.get("classId")
-
-    const whereClause = classId ? { classId } : {}
-
-    const subjects = await prisma.subject.findMany({
-      where: whereClause,
+    const teachers = await prisma.teacher.findMany({
+      where: { isActive: true },
       include: {
-        class: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        subjectTeachers: {
+        subjectAssignments: {
           include: {
-            teacher: {
+            subject: {
               select: {
                 id: true,
                 name: true,
-                email: true,
+                code: true,
+              },
+            },
+            class: {
+              select: {
+                id: true,
+                name: true,
               },
             },
             term: {
@@ -52,9 +47,9 @@ export async function GET(request: Request) {
       orderBy: { name: "asc" },
     })
 
-    return NextResponse.json(subjects)
+    return NextResponse.json(teachers)
   } catch (error) {
-    console.error("Error fetching subjects:", error)
+    console.error("Error fetching teachers:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -68,33 +63,46 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { name, code, classId, category = "GENERAL" } = body
+    const { name, email, phone, address, qualification, experience } = body
 
-    if (!name || !code || !classId) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!name) {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 })
     }
 
-    const subject = await prisma.subject.create({
+    // Check if email already exists (if provided)
+    if (email) {
+      const existingTeacher = await prisma.teacher.findUnique({
+        where: { email },
+      })
+
+      if (existingTeacher) {
+        return NextResponse.json({ error: "Teacher with this email already exists" }, { status: 400 })
+      }
+    }
+
+    const teacher = await prisma.teacher.create({
       data: {
         name,
-        code,
-        classId,
-        category,
+        email: email || null,
+        phone: phone || null,
+        address: address || null,
+        qualification: qualification || null,
+        experience: experience ? Number.parseInt(experience) : null,
       },
       include: {
-        class: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        subjectTeachers: {
+        subjectAssignments: {
           include: {
-            teacher: {
+            subject: {
               select: {
                 id: true,
                 name: true,
-                email: true,
+                code: true,
+              },
+            },
+            class: {
+              select: {
+                id: true,
+                name: true,
               },
             },
             term: {
@@ -114,9 +122,9 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json(subject, { status: 201 })
+    return NextResponse.json(teacher, { status: 201 })
   } catch (error) {
-    console.error("Error creating subject:", error)
+    console.error("Error creating teacher:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
