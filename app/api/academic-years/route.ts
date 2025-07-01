@@ -6,51 +6,31 @@ import { prisma } from "@/lib/prisma"
 export async function GET() {
   try {
     const session = await getServerSession(authOptions)
-    if (!session || session.user.role !== "ADMIN") {
+
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const academicYears = await prisma.academicYear.findMany({
       include: {
         terms: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        classes: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        students: {
-          select: {
-            id: true,
+          orderBy: {
+            startDate: "asc",
           },
         },
         _count: {
           select: {
-            terms: true,
-            classes: true,
             students: true,
+            classes: true,
           },
         },
       },
       orderBy: {
-        startDate: "desc",
+        year: "desc",
       },
     })
 
-    // Transform the data to include counts
-    const transformedAcademicYears = academicYears.map((year) => ({
-      ...year,
-      termsCount: year._count.terms,
-      classesCount: year._count.classes,
-      studentsCount: year._count.students,
-    }))
-
-    return NextResponse.json(transformedAcademicYears)
+    return NextResponse.json(academicYears)
   } catch (error) {
     console.error("Error fetching academic years:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -60,14 +40,16 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session || session.user.role !== "ADMIN") {
+
+    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { year, startDate, endDate, isActive } = await request.json()
+    const body = await request.json()
+    const { year, startDate, endDate, isActive } = body
 
-    if (!year || !startDate || !endDate) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!year) {
+      return NextResponse.json({ error: "Year is required" }, { status: 400 })
     }
 
     // If setting as active, deactivate all other academic years
@@ -78,68 +60,29 @@ export async function POST(request: Request) {
       })
     }
 
-    // Check for overlapping academic years
-    const overlappingYear = await prisma.academicYear.findFirst({
-      where: {
-        OR: [
-          {
-            AND: [{ startDate: { lte: new Date(startDate) } }, { endDate: { gte: new Date(startDate) } }],
-          },
-          {
-            AND: [{ startDate: { lte: new Date(endDate) } }, { endDate: { gte: new Date(endDate) } }],
-          },
-          {
-            AND: [{ startDate: { gte: new Date(startDate) } }, { endDate: { lte: new Date(endDate) } }],
-          },
-        ],
-      },
-    })
-
-    if (overlappingYear) {
-      return NextResponse.json({ error: "Academic year dates overlap with existing year" }, { status: 400 })
-    }
-
     const academicYear = await prisma.academicYear.create({
       data: {
         year,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
         isActive: isActive || false,
       },
       include: {
         terms: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        classes: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        students: {
-          select: {
-            id: true,
+          orderBy: {
+            startDate: "asc",
           },
         },
         _count: {
           select: {
-            terms: true,
-            classes: true,
             students: true,
+            classes: true,
           },
         },
       },
     })
 
-    return NextResponse.json({
-      ...academicYear,
-      termsCount: academicYear._count.terms,
-      classesCount: academicYear._count.classes,
-      studentsCount: academicYear._count.students,
-    })
+    return NextResponse.json(academicYear, { status: 201 })
   } catch (error) {
     console.error("Error creating academic year:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

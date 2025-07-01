@@ -15,7 +15,7 @@ export async function GET() {
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
       include: {
-        assignedClasses: {
+        class: {
           include: {
             subjects: true,
             students: {
@@ -41,11 +41,11 @@ export async function GET() {
       },
     })
 
-    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
+    if (!teacher?.class) {
       return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
     }
 
-    const teacherClass = teacher.assignedClasses[0]
+    const teacherClass = teacher.class
 
     // Get active academic year and terms
     const [activeAcademicYear, terms, gradingSystem] = await Promise.all([

@@ -7,54 +7,43 @@ export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || !["ADMIN", "HEADTEACHER", "SECRETARY", "CLASS_TEACHER"].includes(session.user.role)) {
+    if (!session || !["ADMIN", "SECRETARY", "CLASS_TEACHER"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const { searchParams } = new URL(request.url)
+    const academicYearId = searchParams.get("academicYearId")
     const classId = searchParams.get("classId")
     const termId = searchParams.get("termId")
-    const academicYearId = searchParams.get("academicYearId")
-    const search = searchParams.get("search")
 
-    const where: any = {}
+    const whereClause: any = {}
 
     // Handle academic year filter
     if (academicYearId && academicYearId !== "all") {
       if (academicYearId === "active") {
-        // Get active academic year
         const activeYear = await prisma.academicYear.findFirst({
           where: { isActive: true },
+          select: { id: true },
         })
         if (activeYear) {
-          where.academicYearId = activeYear.id
+          whereClause.academicYearId = activeYear.id
         }
       } else {
-        where.academicYearId = academicYearId
+        whereClause.academicYearId = academicYearId
       }
     }
 
-    // Filter by class
+    // Filter by class if provided
     if (classId && classId !== "all") {
-      where.classId = classId
+      whereClause.classId = classId
     }
 
-    // Filter by term
+    // Filter by term if provided
     if (termId && termId !== "all") {
-      where.termId = termId
+      whereClause.termId = termId
     }
 
-    // Search functionality
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { parent: { name: { contains: search, mode: "insensitive" } } },
-        { parent: { email: { contains: search, mode: "insensitive" } } },
-      ]
-    }
-
-    // If user is a class teacher, only show their students
+    // For teachers, restrict to their assigned class
     if (session.user.role === "CLASS_TEACHER") {
       const teacher = await prisma.user.findUnique({
         where: { id: session.user.id },
@@ -62,16 +51,39 @@ export async function GET(request: Request) {
       })
 
       if (teacher?.classId) {
-        where.classId = teacher.classId
+        whereClause.classId = teacher.classId
       }
     }
 
     const students = await prisma.student.findMany({
-      where,
+      where: whereClause,
       include: {
-        class: true,
-        term: true,
-        academicYear: true,
+        class: {
+          select: {
+            id: true,
+            name: true,
+            academicYear: {
+              select: {
+                id: true,
+                year: true,
+                isActive: true,
+              },
+            },
+          },
+        },
+        term: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        academicYear: {
+          select: {
+            id: true,
+            year: true,
+            isActive: true,
+          },
+        },
         parent: {
           select: {
             id: true,
@@ -79,8 +91,33 @@ export async function GET(request: Request) {
             email: true,
           },
         },
+        marks: {
+          include: {
+            subject: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+            term: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: [{ subject: { name: "asc" } }, { term: { name: "asc" } }],
+        },
+        reportCards: {
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
       },
-      orderBy: { name: "asc" },
+      orderBy: {
+        name: "asc",
+      },
     })
 
     return NextResponse.json({ students })
@@ -94,7 +131,7 @@ export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session || !["ADMIN", "HEADTEACHER", "SECRETARY"].includes(session.user.role)) {
+    if (!session || !["ADMIN", "SECRETARY"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -107,153 +144,145 @@ export async function POST(request: Request) {
       age,
       address,
       phone,
+      photo,
+      emergencyContact,
+      medicalInfo,
       parentId,
       classId,
       termId,
       academicYearId,
-      emergencyContact,
-      medicalInfo,
-      photo,
     } = body
 
-    // Validate required fields
-    if (!name || !gender || !age || !classId || !termId) {
-      return NextResponse.json(
-        {
-          error: "Missing required fields: name, gender, age, classId, and termId are required",
-        },
-        { status: 400 },
-      )
+    // Validation
+    if (!name?.trim()) {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 })
     }
 
-    // Validate age is a number
-    const parsedAge = Number.parseInt(age)
-    if (isNaN(parsedAge) || parsedAge < 1 || parsedAge > 100) {
-      return NextResponse.json(
-        {
-          error: "Age must be a valid number between 1 and 100",
-        },
-        { status: 400 },
-      )
+    if (!classId) {
+      return NextResponse.json({ error: "Class is required" }, { status: 400 })
     }
 
-    // Validate gender
-    if (!["MALE", "FEMALE"].includes(gender)) {
-      return NextResponse.json(
-        {
-          error: "Gender must be either MALE or FEMALE",
-        },
-        { status: 400 },
-      )
+    if (!academicYearId) {
+      return NextResponse.json({ error: "Academic year is required" }, { status: 400 })
     }
 
-    // Validate class exists
+    // Validate gender if provided
+    if (gender && !["MALE", "FEMALE"].includes(gender)) {
+      return NextResponse.json({ error: "Invalid gender value" }, { status: 400 })
+    }
+
+    // Validate age if provided
+    if (age && (typeof age !== "number" || age < 1 || age > 100)) {
+      return NextResponse.json({ error: "Age must be a number between 1 and 100" }, { status: 400 })
+    }
+
+    // Check if class exists
     const classExists = await prisma.class.findUnique({
       where: { id: classId },
     })
+
     if (!classExists) {
-      return NextResponse.json(
-        {
-          error: "Selected class does not exist",
-        },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Class not found" }, { status: 400 })
     }
 
-    // Validate term exists
-    const termExists = await prisma.term.findUnique({
-      where: { id: termId },
+    // Check if academic year exists
+    const academicYearExists = await prisma.academicYear.findUnique({
+      where: { id: academicYearId },
     })
-    if (!termExists) {
-      return NextResponse.json(
-        {
-          error: "Selected term does not exist",
-        },
-        { status: 400 },
-      )
+
+    if (!academicYearExists) {
+      return NextResponse.json({ error: "Academic year not found" }, { status: 400 })
     }
 
-    // If no academic year specified, use the active one
-    let finalAcademicYearId = academicYearId
-    if (!finalAcademicYearId) {
-      const activeYear = await prisma.academicYear.findFirst({
-        where: { isActive: true },
+    // Check if term exists (if provided)
+    if (termId) {
+      const termExists = await prisma.term.findUnique({
+        where: { id: termId },
       })
-      if (activeYear) {
-        finalAcademicYearId = activeYear.id
-      } else {
-        return NextResponse.json({ error: "No active academic year found" }, { status: 400 })
+
+      if (!termExists) {
+        return NextResponse.json({ error: "Term not found" }, { status: 400 })
       }
     }
 
-    // Validate academic year exists
-    const academicYearExists = await prisma.academicYear.findUnique({
-      where: { id: finalAcademicYearId },
-    })
-    if (!academicYearExists) {
-      return NextResponse.json(
-        {
-          error: "Selected academic year does not exist",
-        },
-        { status: 400 },
-      )
-    }
-
-    // Validate parent exists if provided
+    // Check if parent exists (if provided)
     if (parentId) {
       const parentExists = await prisma.user.findUnique({
         where: { id: parentId, role: "PARENT" },
       })
+
       if (!parentExists) {
-        return NextResponse.json(
-          {
-            error: "Selected parent does not exist or is not a parent user",
-          },
-          { status: 400 },
-        )
+        return NextResponse.json({ error: "Parent not found" }, { status: 400 })
       }
     }
 
-    // Check if student with same name already exists in the same class
+    // Check for duplicate student in the same class and academic year
     const existingStudent = await prisma.student.findFirst({
       where: {
-        name,
+        name: name.trim(),
         classId,
-        academicYearId: finalAcademicYearId,
+        academicYearId,
       },
     })
 
     if (existingStudent) {
       return NextResponse.json(
-        {
-          error: "A student with this name already exists in the selected class for this academic year",
-        },
+        { error: "A student with this name already exists in this class and academic year" },
         { status: 400 },
       )
     }
 
+    // Build student data object dynamically
+    const studentData: any = {
+      name: name.trim(),
+    }
+
+    // Only add fields that have values
+    if (email?.trim()) studentData.email = email.trim()
+    if (dateOfBirth) studentData.dateOfBirth = new Date(dateOfBirth)
+    if (gender) studentData.gender = gender
+    if (age) studentData.age = Number.parseInt(age.toString())
+    if (address?.trim()) studentData.address = address.trim()
+    if (phone?.trim()) studentData.phone = phone.trim()
+    if (photo?.trim()) studentData.photo = photo.trim()
+    if (emergencyContact?.trim()) studentData.emergencyContact = emergencyContact.trim()
+    if (medicalInfo?.trim()) studentData.medicalInfo = medicalInfo.trim()
+    if (parentId) studentData.parentId = parentId
+    if (classId) studentData.classId = classId
+    if (termId) studentData.termId = termId
+    if (academicYearId) studentData.academicYearId = academicYearId
+    if (session.user.id) studentData.createdById = session.user.id
+
+    // Create student
     const student = await prisma.student.create({
-      data: {
-        name: name.trim(),
-        // email: email?.trim() || null,
-        // dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-        gender,
-        age: parsedAge,
-        address: address?.trim() || null,
-        phone: phone?.trim() || null,
-        parentId: parentId || null,
-        classId,
-        termId,
-        academicYearId: finalAcademicYearId,
-        emergencyContact: emergencyContact?.trim() || null,
-        medicalInfo: medicalInfo?.trim() || null,
-        photo: photo || null,
-        createdById: session.user.id,
-      },
+      data: studentData,
       include: {
-        class: true,
-        term: true,
-        academicYear: true,
+        class: {
+          select: {
+            id: true,
+            name: true,
+            academicYear: {
+              select: {
+                id: true,
+                year: true,
+                isActive: true,
+              },
+            },
+          },
+        },
+        term: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        academicYear: {
+          select: {
+            id: true,
+            year: true,
+            isActive: true,
+          },
+        },
         parent: {
           select: {
             id: true,
@@ -264,31 +293,9 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json(student, { status: 201 })
+    return NextResponse.json({ student }, { status: 201 })
   } catch (error) {
     console.error("Error creating student:", error)
-
-    // Handle specific Prisma errors
-    if (error instanceof Error) {
-      if (error.message.includes("Unique constraint")) {
-        return NextResponse.json(
-          {
-            error: "A student with this information already exists",
-          },
-          { status: 400 },
-        )
-      }
-
-      if (error.message.includes("Foreign key constraint")) {
-        return NextResponse.json(
-          {
-            error: "Invalid reference to class, term, academic year, or parent",
-          },
-          { status: 400 },
-        )
-      }
-    }
-
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

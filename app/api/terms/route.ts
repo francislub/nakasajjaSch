@@ -3,44 +3,40 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session || session.user.role !== "ADMIN") {
+
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const { searchParams } = new URL(request.url)
+    const academicYearId = searchParams.get("academicYearId")
+
+    const where: any = {}
+
+    if (academicYearId && academicYearId !== "all") {
+      where.academicYearId = academicYearId
+    }
+
     const terms = await prisma.term.findMany({
+      where,
       include: {
         academicYear: {
           select: {
             id: true,
             year: true,
-          },
-        },
-        students: {
-          select: {
-            id: true,
-          },
-        },
-        _count: {
-          select: {
-            students: true,
+            isActive: true,
           },
         },
       },
       orderBy: {
-        startDate: "desc",
+        startDate: "asc",
       },
     })
 
-    // Transform the data to include student count
-    const transformedTerms = terms.map((term) => ({
-      ...term,
-      studentCount: term._count.students,
-    }))
-
-    return NextResponse.json(transformedTerms)
+    return NextResponse.json(terms)
   } catch (error) {
     console.error("Error fetching terms:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -50,52 +46,23 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session || session.user.role !== "ADMIN") {
+
+    if (!session || !["ADMIN", "HEADTEACHER"].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { name, startDate, endDate, academicYearId } = await request.json()
+    const body = await request.json()
+    const { name, startDate, endDate, academicYearId } = body
 
-    if (!name || !startDate || !endDate || !academicYearId) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
-    }
-
-    // Check if academic year exists
-    const academicYear = await prisma.academicYear.findUnique({
-      where: { id: academicYearId },
-    })
-
-    if (!academicYear) {
-      return NextResponse.json({ error: "Academic year not found" }, { status: 404 })
-    }
-
-    // Check for overlapping terms in the same academic year
-    const overlappingTerm = await prisma.term.findFirst({
-      where: {
-        academicYearId,
-        OR: [
-          {
-            AND: [{ startDate: { lte: new Date(startDate) } }, { endDate: { gte: new Date(startDate) } }],
-          },
-          {
-            AND: [{ startDate: { lte: new Date(endDate) } }, { endDate: { gte: new Date(endDate) } }],
-          },
-          {
-            AND: [{ startDate: { gte: new Date(startDate) } }, { endDate: { lte: new Date(endDate) } }],
-          },
-        ],
-      },
-    })
-
-    if (overlappingTerm) {
-      return NextResponse.json({ error: "Term dates overlap with existing term" }, { status: 400 })
+    if (!name || !academicYearId) {
+      return NextResponse.json({ error: "Name and academic year are required" }, { status: 400 })
     }
 
     const term = await prisma.term.create({
       data: {
         name,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
         academicYearId,
       },
       include: {
@@ -103,25 +70,13 @@ export async function POST(request: Request) {
           select: {
             id: true,
             year: true,
-          },
-        },
-        students: {
-          select: {
-            id: true,
-          },
-        },
-        _count: {
-          select: {
-            students: true,
+            isActive: true,
           },
         },
       },
     })
 
-    return NextResponse.json({
-      ...term,
-      studentCount: term._count.students,
-    })
+    return NextResponse.json(term, { status: 201 })
   } catch (error) {
     console.error("Error creating term:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

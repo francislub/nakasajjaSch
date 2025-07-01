@@ -14,20 +14,35 @@ export async function GET() {
     const classes = await prisma.class.findMany({
       include: {
         academicYear: true,
-        classTeacher: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
         subjects: true,
         students: true,
       },
       orderBy: { name: "asc" },
     })
 
-    return NextResponse.json(classes)
+    // Get class teachers separately since the relationship is from User to Class
+    const classesWithTeachers = await Promise.all(
+      classes.map(async (classItem) => {
+        const teacher = await prisma.user.findFirst({
+          where: {
+            classId: classItem.id,
+            role: "CLASS_TEACHER",
+          },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        })
+
+        return {
+          ...classItem,
+          classTeacher: teacher,
+        }
+      }),
+    )
+
+    return NextResponse.json(classesWithTeachers)
   } catch (error) {
     console.error("Error fetching classes:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

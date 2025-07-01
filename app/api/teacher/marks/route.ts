@@ -17,31 +17,26 @@ export async function GET(request: Request) {
     const studentId = searchParams.get("studentId")
     const classId = searchParams.get("classId")
 
-    // Get teacher's assigned classes or allow secretary/admin to access all
-    let teacherClass
+    // Get teacher's assigned class or allow secretary/admin to access all
+    let teacherClassId
     if (session.user.role === "CLASS_TEACHER") {
       const teacher = await prisma.user.findUnique({
         where: { id: session.user.id },
-        include: {
-          assignedClasses: true,
-        },
+        select: { classId: true },
       })
 
-      if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
+      if (!teacher?.classId) {
         return NextResponse.json({ error: "No class assigned" }, { status: 400 })
       }
-      teacherClass = teacher.assignedClasses[0]
-    } else if (session.user.role === "SECRETARY" || session.user.role === "ADMIN") {
-      // Secretary and Admin can access marks from any class
-      teacherClass = null
+      teacherClassId = teacher.classId
     }
 
     const whereClause: any = {}
 
     // Only filter by class if user is a teacher with assigned class
-    if (teacherClass) {
+    if (teacherClassId) {
       whereClause.student = {
-        classId: teacherClass.id,
+        classId: teacherClassId,
       }
     } else if (classId) {
       whereClause.student = {
@@ -61,7 +56,6 @@ export async function GET(request: Request) {
             id: true,
             name: true,
             photo: true,
-            registrationNumber: true,
             class: {
               select: {
                 id: true,
@@ -94,7 +88,7 @@ export async function GET(request: Request) {
       orderBy: [{ student: { name: "asc" } }, { subject: { name: "asc" } }],
     })
 
-    return NextResponse.json({ marks })
+    return NextResponse.json(marks)
   } catch (error) {
     console.error("Error fetching marks:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

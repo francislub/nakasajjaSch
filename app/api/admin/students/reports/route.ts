@@ -27,14 +27,19 @@ export async function GET(request: Request) {
       where.termId = termId
     }
 
+    // Handle academicYearId properly
     if (academicYearId && academicYearId !== "all") {
-      where.academicYearId = academicYearId
-    } else if (academicYearId === "active") {
-      const activeYear = await prisma.academicYear.findFirst({
-        where: { isActive: true },
-      })
-      if (activeYear) {
-        where.academicYearId = activeYear.id
+      if (academicYearId === "active") {
+        // Find the active academic year first
+        const activeYear = await prisma.academicYear.findFirst({
+          where: { isActive: true },
+        })
+        if (activeYear) {
+          where.academicYearId = activeYear.id
+        }
+      } else {
+        // Use the provided academicYearId directly
+        where.academicYearId = academicYearId
       }
     }
 

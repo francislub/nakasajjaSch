@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
       include: {
-        assignedClasses: {
+        class: {
           include: {
             students: {
               orderBy: { name: "asc" },
@@ -28,11 +28,11 @@ export async function POST(request: Request) {
       },
     })
 
-    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
+    if (!teacher?.class) {
       return NextResponse.json({ error: "No class assigned" }, { status: 400 })
     }
 
-    const teacherClass = teacher.assignedClasses[0]
+    const teacherClass = teacher.class
 
     // Build where clause based on export type
     const whereClause: any = {
@@ -86,6 +86,11 @@ export async function POST(request: Request) {
       orderBy: { name: "asc" },
     })
 
+    // Get grading system from database
+    const gradingSystem = await prisma.gradingSystem.findMany({
+      orderBy: { minMark: "desc" },
+    })
+
     // Process data based on export type
     let exportData: any[] = []
     const metadata: any = {
@@ -118,7 +123,7 @@ export async function POST(request: Request) {
         break
 
       case "class_summary":
-        exportData = processClassSummaryExport(marks, teacherClass.students)
+        exportData = processClassSummaryExport(marks, teacherClass.students, gradingSystem)
         break
 
       case "performance_analysis":
@@ -281,7 +286,16 @@ function processStudentReportExport(marks: any[], studentId: string) {
   }
 }
 
-function processClassSummaryExport(marks: any[], students: any[]) {
+function processClassSummaryExport(marks: any[], students: any[], gradingSystem: any[]) {
+  const calculateGradeFromDatabase = (average: number) => {
+    for (const grade of gradingSystem) {
+      if (average >= (grade.minMark || 0) && average <= (grade.maxMark || 100)) {
+        return grade.grade
+      }
+    }
+    return "F"
+  }
+
   const summary = students.map((student) => {
     const studentMarks = marks.filter((mark) => mark.student.id === student.id)
     const validMarks = studentMarks.filter((mark) => mark.total > 0)
@@ -296,7 +310,7 @@ function processClassSummaryExport(marks: any[], students: any[]) {
       averageScore: average,
       highestScore: validMarks.length > 0 ? Math.max(...validMarks.map((m) => m.total)) : 0,
       lowestScore: validMarks.length > 0 ? Math.min(...validMarks.map((m) => m.total)) : 0,
-      grade: calculateGradeFromAverage(average),
+      grade: calculateGradeFromDatabase(average),
       status: average >= 50 ? "Pass" : "Fail",
     }
   })
@@ -458,12 +472,4 @@ function calculateStudentAverage(subjects: any[]) {
   return validSubjects.length > 0
     ? Math.round(validSubjects.reduce((sum, s) => sum + s.total, 0) / validSubjects.length)
     : 0
-}
-
-function calculateGradeFromAverage(average: number) {
-  if (average >= 90) return "A"
-  if (average >= 80) return "B"
-  if (average >= 70) return "C"
-  if (average >= 60) return "D"
-  return "F"
 }

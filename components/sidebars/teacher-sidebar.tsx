@@ -35,6 +35,11 @@ const teacherMenuItems = [
     icon: LayoutDashboard,
   },
   {
+    title: "My Class",
+    url: "/teacher/classes",
+    icon: FileText,
+  },
+  {
     title: "My Students",
     url: "/teacher/students",
     icon: Users,
@@ -48,11 +53,6 @@ const teacherMenuItems = [
     title: "Marks Entry",
     url: "/teacher/marks",
     icon: BookOpen,
-  },
-  {
-    title: "My Class",
-    url: "/teacher/classes",
-    icon: FileText,
   },
   // {
   //   title: "Student ",

@@ -59,6 +59,7 @@ interface Mark {
     id: string
     name: string
     code?: string
+    category: "GENERAL" | "SUBSIDIARY"
   }
   term: {
     id: string
@@ -113,6 +114,7 @@ interface Student {
       id: string
       name: string
       code: string
+      category: "GENERAL" | "SUBSIDIARY"
     }[]
     academicYear?: {
       id: string
@@ -163,6 +165,7 @@ interface Class {
     id: string
     name: string
     code: string
+    category: "GENERAL" | "SUBSIDIARY"
   }[]
   classTeacher?: {
     id: string
@@ -242,18 +245,36 @@ const calculateDivision = (
   marks: Mark[],
   examType: "BOT" | "MID" | "END",
   gradingSystem: GradingSystem[],
+  classSubjects: { id: string; name: string; code: string; category: "GENERAL" | "SUBSIDIARY" }[],
 ): DivisionResult | null => {
   console.log(`🔍 Calculating division for exam type: ${examType}`)
   console.log("📊 Marks data:", marks)
   console.log("📋 Grading system:", gradingSystem)
+  console.log("🏫 Class subjects:", classSubjects)
 
   if (!marks || marks.length === 0 || !gradingSystem || gradingSystem.length === 0) {
     console.log("❌ Missing data - marks or grading system empty")
     return null
   }
 
-  // Get scores for the specific exam type
-  const subjectScores = marks
+  // Filter only GENERAL subjects for division calculation
+  const generalSubjectMarks = marks.filter((mark) => {
+    // Find the subject in class subjects to get category
+    const classSubject = classSubjects.find((sub) => sub.id === mark.subject.id)
+    const isGeneral = classSubject?.category === "GENERAL"
+    console.log(`📝 Subject: ${mark.subject.name}, Category: ${classSubject?.category}, Is General: ${isGeneral}`)
+    return isGeneral
+  })
+
+  console.log("📚 General subject marks:", generalSubjectMarks)
+
+  if (generalSubjectMarks.length < 4) {
+    console.log(`❌ Not enough general subjects (${generalSubjectMarks.length}/4 required)`)
+    return null
+  }
+
+  // Get scores for the specific exam type from general subjects only
+  const subjectScores = generalSubjectMarks
     .map((mark) => {
       let score = 0
       switch (examType) {
@@ -268,7 +289,7 @@ const calculateDivision = (
           break
       }
 
-      console.log(`📝 Subject: ${mark.subject.name}, Score: ${score}`)
+      console.log(`📝 Subject: ${mark.subject.name} (GENERAL), Score: ${score}`)
 
       // Convert score to grade using grading system
       let grade = "F"
@@ -277,7 +298,7 @@ const calculateDivision = (
       for (const gradeEntry of gradingSystem.sort((a, b) => b.minMark - a.minMark)) {
         if (score >= gradeEntry.minMark && score <= gradeEntry.maxMark) {
           grade = gradeEntry.grade
-          // Assign grade values: A=1, B=2, C=3, D=4, E=5, F=9
+          // Assign grade values: D1=1, D2=2, C3=3, C4=4, C5=5, C6=6, P7=7, P8=8, F=9
           switch (grade) {
             case "D1":
               gradeValue = 1
@@ -323,19 +344,19 @@ const calculateDivision = (
     })
     .filter((subject) => subject.score > 0) // Only include subjects with scores
 
-  console.log("📈 Subject scores after filtering:", subjectScores)
+  console.log("📈 General subject scores after filtering:", subjectScores)
 
   if (subjectScores.length < 4) {
-    console.log(`❌ Not enough subjects with scores (${subjectScores.length}/4 required)`)
-    return null // Need at least 4 subjects for division calculation
+    console.log(`❌ Not enough general subjects with scores (${subjectScores.length}/4 required)`)
+    return null
   }
 
-  // Sort by grade value (best grades first) and take top 4
-  const top4Subjects = subjectScores.sort((a, b) => a.gradeValue - b.gradeValue).slice(0, 4)
-  console.log("🏆 Top 4 subjects:", top4Subjects)
+  // Sort by grade value (best grades first) and take exactly 4 general subjects
+  const best4GeneralSubjects = subjectScores.sort((a, b) => a.gradeValue - b.gradeValue).slice(0, 4)
+  console.log("🏆 Best 4 general subjects:", best4GeneralSubjects)
 
-  // Calculate aggregate (sum of grade values for top 4 subjects)
-  const aggregate = top4Subjects.reduce((sum, subject) => sum + subject.gradeValue, 0)
+  // Calculate aggregate (sum of grade values for best 4 general subjects)
+  const aggregate = best4GeneralSubjects.reduce((sum, subject) => sum + subject.gradeValue, 0)
   console.log("🎯 Aggregate score:", aggregate)
 
   // Determine division based on aggregate
@@ -366,7 +387,7 @@ const calculateDivision = (
     aggregate,
     label,
     color: getDivisionColor(division),
-    subjects: top4Subjects,
+    subjects: best4GeneralSubjects,
   }
 }
 
@@ -478,12 +499,15 @@ export default function TeacherReportsPage() {
       console.error("❌ Error fetching grading system:", error)
       // Set default grading system
       const defaultGrading = [
-        { id: "1", grade: "A", minMark: 80, maxMark: 100, comment: "Excellent" },
-        // { id: "2", grade: "B", minMark: 70, maxMark: 79, comment: "Very Good" },
-        // { id: "3", grade: "C", minMark: 60, maxMark: 69, comment: "Good" },
-        // { id: "4", grade: "D", minMark: 50, maxMark: 59, comment: "Fair" },
-        // { id: "5", grade: "E", minMark: 40, maxMark: 49, comment: "Pass" },
-        // { id: "6", grade: "F", minMark: 0, maxMark: 39, comment: "Fail" },
+        { id: "1", grade: "D1", minMark: 80, maxMark: 100, comment: "Distinction" },
+        // { id: "2", grade: "D2", minMark: 75, maxMark: 79, comment: "Distinction" },
+        // { id: "3", grade: "C3", minMark: 70, maxMark: 74, comment: "Credit" },
+        // { id: "4", grade: "C4", minMark: 65, maxMark: 69, comment: "Credit" },
+        // { id: "5", grade: "C5", minMark: 60, maxMark: 64, comment: "Credit" },
+        // { id: "6", grade: "C6", minMark: 55, maxMark: 59, comment: "Credit" },
+        // { id: "7", grade: "P7", minMark: 50, maxMark: 54, comment: "Pass" },
+        // { id: "8", grade: "P8", minMark: 45, maxMark: 49, comment: "Pass" },
+        // { id: "9", grade: "F", minMark: 0, maxMark: 44, comment: "Fail" },
       ]
       console.log("🔧 Using default grading system:", defaultGrading)
       setGradingSystem(defaultGrading)
@@ -612,6 +636,11 @@ export default function TeacherReportsPage() {
         return
       }
 
+      // Get class subjects for category information
+      const selectedClassData = classes.find((cls) => cls.id === selectedClass)
+      const classSubjects = selectedClassData?.subjects || []
+      console.log("🏫 Class subjects for division calculation:", classSubjects)
+
       // Process students with their marks and calculate divisions
       console.log("📊 Processing students with marks and calculating divisions...")
       const studentsWithDivisions = studentsList.map((student: any) => {
@@ -621,12 +650,12 @@ export default function TeacherReportsPage() {
         const termMarks = student.marks.filter((mark: Mark) => mark.term.id === selectedTerm)
         console.log(`📊 Term marks for ${student.name}:`, termMarks)
 
-        // Calculate divisions for each exam type
+        // Calculate divisions for each exam type using class subjects for category info
         console.log(`🧮 Calculating divisions for ${student.name}...`)
         const divisions = {
-          BOT: calculateDivision(termMarks, "BOT", gradingSystem),
-          MID: calculateDivision(termMarks, "MID", gradingSystem),
-          END: calculateDivision(termMarks, "END", gradingSystem),
+          BOT: calculateDivision(termMarks, "BOT", gradingSystem, classSubjects),
+          MID: calculateDivision(termMarks, "MID", gradingSystem, classSubjects),
+          END: calculateDivision(termMarks, "END", gradingSystem, classSubjects),
         }
         console.log(`📊 Divisions for ${student.name}:`, divisions)
 
@@ -641,6 +670,29 @@ export default function TeacherReportsPage() {
       setStudents(studentsWithDivisions)
       calculateStatistics(studentsWithDivisions)
       updatePagination(studentsWithDivisions.length)
+
+      // Initialize bulk reports for ALL students when data is loaded
+      if (studentsWithDivisions.length > 0) {
+        console.log("📋 Initializing bulk reports for ALL students:", studentsWithDivisions.length)
+        const initialReports = studentsWithDivisions.map((student: any) => {
+          const existingReport = student.reportCards?.[0]
+          return {
+            studentId: student.id,
+            discipline: existingReport?.discipline || "",
+            cleanliness: existingReport?.cleanliness || "",
+            classWorkPresentation: existingReport?.classWorkPresentation || "",
+            adherenceToSchool: existingReport?.adherenceToSchool || "",
+            coCurricularActivities: existingReport?.coCurricularActivities || "",
+            considerationToOthers: existingReport?.considerationToOthers || "",
+            speakingEnglish: existingReport?.speakingEnglish || "",
+            classTeacherComment: existingReport?.classTeacherComment || "",
+            hasExistingReport: !!existingReport,
+            reportId: existingReport?.id,
+          }
+        })
+        console.log("📋 Initialized bulk reports for all students:", initialReports.length)
+        setBulkReports(initialReports)
+      }
     } catch (error) {
       console.error("❌ Error fetching students with marks:", error)
       toast({
@@ -866,7 +918,7 @@ export default function TeacherReportsPage() {
     setCreateMode(mode)
     if (mode === "bulk") {
       // Initialize bulk reports with existing data for ALL students
-      console.log("📋 Initializing bulk reports for students:", students.length)
+      console.log("📋 Initializing bulk reports for ALL students:", students.length)
       const initialReports = students.map((student) => {
         const existingReport = student.reportCards?.[0]
         console.log(`📝 Student ${student.name} existing report:`, existingReport)
@@ -884,7 +936,7 @@ export default function TeacherReportsPage() {
           reportId: existingReport?.id,
         }
       })
-      console.log("📋 Initialized bulk reports:", initialReports)
+      console.log("📋 Initialized bulk reports for ALL students:", initialReports.length)
       setBulkReports(initialReports)
     }
     setIsCreateDialogOpen(true)
@@ -1016,7 +1068,7 @@ export default function TeacherReportsPage() {
         <div className="space-y-1 sm:space-y-2">
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Student Performance & Reports</h1>
           <p className="text-sm sm:text-base text-gray-600">
-            Division-based academic performance and behavioral assessments
+            Division-based academic performance using 4 general subjects and behavioral assessments
           </p>
           <p className="text-xs sm:text-sm text-gray-500">
             Using {gradingSystem.length} grade levels • {students.length} students loaded
@@ -1277,7 +1329,7 @@ export default function TeacherReportsPage() {
                 Student Performance - {terms.find((t) => t.id === selectedTerm)?.name} ({selectedExamType})
               </CardTitle>
               <CardDescription className="text-sm">
-                Division-based performance using top 4 subjects. Showing {paginatedStudents.length} of{" "}
+                Division-based performance using 4 general subjects only. Showing {paginatedStudents.length} of{" "}
                 {filteredStudents.length} students.
               </CardDescription>
             </div>
@@ -1477,7 +1529,7 @@ export default function TeacherReportsPage() {
                                 </Badge>
                                 <div className="text-xs text-gray-500">Agg: {student.divisions.BOT.aggregate}</div>
                                 <div className="text-xs text-gray-400">
-                                  Top 4: {student.divisions.BOT.subjects.map((s) => s.grade).join(", ")}
+                                  Top 4 General: {student.divisions.BOT.subjects.map((s) => s.grade).join(", ")}
                                 </div>
                               </div>
                             ) : (
@@ -1495,7 +1547,7 @@ export default function TeacherReportsPage() {
                                 </Badge>
                                 <div className="text-xs text-gray-500">Agg: {student.divisions.MID.aggregate}</div>
                                 <div className="text-xs text-gray-400">
-                                  Top 4: {student.divisions.MID.subjects.map((s) => s.grade).join(", ")}
+                                  Top 4 General: {student.divisions.MID.subjects.map((s) => s.grade).join(", ")}
                                 </div>
                               </div>
                             ) : (
@@ -1513,7 +1565,7 @@ export default function TeacherReportsPage() {
                                 </Badge>
                                 <div className="text-xs text-gray-500">Agg: {student.divisions.END.aggregate}</div>
                                 <div className="text-xs text-gray-400">
-                                  Top 4: {student.divisions.END.subjects.map((s) => s.grade).join(", ")}
+                                  Top 4 General: {student.divisions.END.subjects.map((s) => s.grade).join(", ")}
                                 </div>
                               </div>
                             ) : (
@@ -1604,7 +1656,6 @@ export default function TeacherReportsPage() {
                 of {filteredStudents.length} students (Page {pagination.currentPage} of {pagination.totalPages})
               </span>
             </div>
-
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -1681,7 +1732,6 @@ export default function TeacherReportsPage() {
             </DialogTitle>
             <DialogDescription>Comprehensive analysis of student performance across all exam types</DialogDescription>
           </DialogHeader>
-
           <div className="space-y-6">
             {/* Overall Statistics */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1845,7 +1895,7 @@ export default function TeacherReportsPage() {
                               <div className="space-y-2">
                                 <div className="text-sm font-medium">Aggregate: {division.aggregate}</div>
                                 <div className="space-y-1">
-                                  <div className="text-xs font-medium text-gray-600">Top 4 Subjects:</div>
+                                  <div className="text-xs font-medium text-gray-600">Top 4 General Subjects:</div>
                                   {division.subjects.map((subject) => (
                                     <div key={subject.subjectId} className="flex justify-between text-xs">
                                       <span>{subject.subjectName}</span>
@@ -1936,7 +1986,7 @@ export default function TeacherReportsPage() {
                     <h3 className="font-semibold text-emerald-900 mb-2">Bulk Report Management</h3>
                     <p className="text-emerald-700 text-sm">
                       Create new reports or update existing ones for all students in the class. Academic performance
-                      shows division-based results using top 4 subjects.
+                      shows division-based results using top 4 general subjects only.
                     </p>
                     <p className="text-emerald-600 text-xs mt-1">
                       Behavioral grades: A-Very Good, B-Good, C-Fair, D-Needs Improvement
@@ -1990,6 +2040,7 @@ export default function TeacherReportsPage() {
                                 </div>
                               </div>
                             </CardHeader>
+
                             <CardContent className="space-y-3">
                               {/* Division Performance Display */}
                               <div className="grid grid-cols-3 gap-2 p-3 bg-gray-50 rounded-lg">
@@ -2146,7 +2197,7 @@ export default function TeacherReportsPage() {
                     <span className="text-emerald-700">Academic Performance Analysis</span>
                   </CardTitle>
                   <CardDescription>
-                    Division-based performance across all exam types using top 4 subjects
+                    Division-based performance across all exam types using top 4 general subjects only
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -2177,14 +2228,16 @@ export default function TeacherReportsPage() {
                               </Badge>
                             )}
                           </div>
+
                           {division && (
                             <div className="space-y-3">
                               <div className="flex justify-between items-center p-2 bg-white rounded border">
                                 <span className="text-sm font-medium">Aggregate Score</span>
                                 <Badge className="bg-emerald-100 text-emerald-800">{division.aggregate}</Badge>
                               </div>
+
                               <div className="space-y-2">
-                                <div className="text-xs font-medium text-gray-600 mb-2">Top 4 Subjects:</div>
+                                <div className="text-xs font-medium text-gray-600 mb-2">Top 4 General Subjects:</div>
                                 {division.subjects.map((subject) => (
                                   <div
                                     key={subject.subjectId}
@@ -2228,6 +2281,7 @@ export default function TeacherReportsPage() {
                         <TableHeader>
                           <TableRow className="hover:bg-gray-50">
                             <TableHead>Subject</TableHead>
+                            <TableHead>Category</TableHead>
                             <TableHead>BOT</TableHead>
                             <TableHead>MID</TableHead>
                             <TableHead>END</TableHead>
@@ -2236,27 +2290,41 @@ export default function TeacherReportsPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {selectedStudent.marks.map((mark, index) => (
-                            <TableRow
-                              key={mark.id}
-                              className={`transition-colors ${
-                                index % 2 === 0 ? "bg-gray-50/50 hover:bg-emerald-50" : "bg-white hover:bg-emerald-50"
-                              }`}
-                            >
-                              <TableCell className="font-medium">{mark.subject.name}</TableCell>
-                              <TableCell>{mark.bot || "-"}</TableCell>
-                              <TableCell>{mark.midterm || "-"}</TableCell>
-                              <TableCell>{mark.eot || "-"}</TableCell>
-                              <TableCell className="font-medium">{mark.total || "-"}</TableCell>
-                              <TableCell>
-                                {mark.grade && (
-                                  <Badge variant="outline" className="hover:bg-gray-50 transition-colors">
-                                    {mark.grade}
+                          {selectedStudent.marks.map((mark, index) => {
+                            // Find subject category from class subjects
+                            const classSubject = classes
+                              .find((cls) => cls.id === selectedClass)
+                              ?.subjects.find((sub) => sub.id === mark.subject.id)
+                            return (
+                              <TableRow
+                                key={mark.id}
+                                className={`transition-colors ${
+                                  index % 2 === 0 ? "bg-gray-50/50 hover:bg-emerald-50" : "bg-white hover:bg-emerald-50"
+                                }`}
+                              >
+                                <TableCell className="font-medium">{mark.subject.name}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={classSubject?.category === "GENERAL" ? "GENERAL" : "SUBSIDIARY"}
+                                    className="text-xs"
+                                  >
+                                    {classSubject?.category || ""}
                                   </Badge>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                                </TableCell>
+                                <TableCell>{mark.bot || "-"}</TableCell>
+                                <TableCell>{mark.midterm || "-"}</TableCell>
+                                <TableCell>{mark.eot || "-"}</TableCell>
+                                <TableCell className="font-medium">{mark.total || "-"}</TableCell>
+                                <TableCell>
+                                  {mark.grade && (
+                                    <Badge variant="outline" className="hover:bg-gray-50 transition-colors">
+                                      {mark.grade}
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
                         </TableBody>
                       </Table>
                     </div>
@@ -2389,7 +2457,6 @@ export default function TeacherReportsPage() {
                               <p className="text-sm text-gray-600 italic">"{report.classTeacherComment}"</p>
                             </div>
                           )}
-
                           {report.headteacherComment && (
                             <div className="bg-blue-50 p-3 rounded border border-blue-200 mt-2 hover:bg-blue-100 transition-colors">
                               <div className="text-sm font-medium text-blue-700 mb-2">Head Teacher Comment:</div>

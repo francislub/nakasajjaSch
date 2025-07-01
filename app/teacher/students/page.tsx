@@ -72,7 +72,7 @@ interface Student {
     status: "PRESENT" | "ABSENT" | "LATE" | "EXCUSED"
     remarks?: string
   }>
-  stats: {
+  stats?: {
     attendanceRate: number
     averageMark: number
     highestMark: number
@@ -82,6 +82,7 @@ interface Student {
     presentDays: number
     absentDays: number
     lateDays: number
+    excusedDays?: number
   }
 }
 
@@ -119,6 +120,41 @@ interface Class {
   id: string
   name: string
   level?: string
+}
+
+// Helper function to calculate student stats
+const calculateStudentStats = (student: Student) => {
+  const marks = student.marks || []
+  const attendance = student.attendance || []
+
+  // Calculate attendance stats
+  const totalAttendanceDays = attendance.length
+  const presentDays = attendance.filter((a) => a.status === "PRESENT").length
+  const absentDays = attendance.filter((a) => a.status === "ABSENT").length
+  const lateDays = attendance.filter((a) => a.status === "LATE").length
+  const excusedDays = attendance.filter((a) => a.status === "EXCUSED").length
+  const attendanceRate = totalAttendanceDays > 0 ? Math.round((presentDays / totalAttendanceDays) * 100) : 0
+
+  // Calculate marks stats
+  const validMarks = marks.filter((m) => m.total !== null).map((m) => m.total as number)
+  const averageMark =
+    validMarks.length > 0 ? Math.round(validMarks.reduce((sum, mark) => sum + mark, 0) / validMarks.length) : 0
+  const highestMark = validMarks.length > 0 ? Math.max(...validMarks) : 0
+  const lowestMark = validMarks.length > 0 ? Math.min(...validMarks) : 0
+  const totalSubjects = marks.length
+
+  return {
+    attendanceRate,
+    averageMark,
+    highestMark,
+    lowestMark,
+    totalSubjects,
+    totalAttendanceDays,
+    presentDays,
+    absentDays,
+    lateDays,
+    excusedDays,
+  }
 }
 
 export default function TeacherStudentsPage() {
@@ -175,7 +211,15 @@ export default function TeacherStudentsPage() {
       const response = await fetch(url)
       if (response.ok) {
         const data = await response.json()
-        setStudents(Array.isArray(data.students) ? data.students : [])
+        const studentsData = Array.isArray(data.students) ? data.students : []
+
+        // Calculate stats for each student if not provided
+        const studentsWithStats = studentsData.map((student: Student) => ({
+          ...student,
+          stats: student.stats || calculateStudentStats(student),
+        }))
+
+        setStudents(studentsWithStats)
         setAcademicYear(data.academicYear)
         setClasses(Array.isArray(data.classes) ? data.classes : [])
       } else {
@@ -204,7 +248,12 @@ export default function TeacherStudentsPage() {
       const response = await fetch(url)
       if (response.ok) {
         const data = await response.json()
-        setDetailedStudent(data.student)
+        const studentData = data.student
+        // Ensure stats are calculated if not provided
+        if (studentData && !studentData.stats) {
+          studentData.stats = calculateStudentStats(studentData)
+        }
+        setDetailedStudent(studentData)
       } else {
         throw new Error("Failed to fetch student details")
       }
@@ -264,12 +313,14 @@ export default function TeacherStudentsPage() {
   const classStats = {
     totalStudents: students.length,
     averagePerformance:
-      students.length > 0 ? Math.round(students.reduce((sum, s) => sum + s.stats.averageMark, 0) / students.length) : 0,
+      students.length > 0
+        ? Math.round(students.reduce((sum, s) => sum + (s.stats?.averageMark || 0), 0) / students.length)
+        : 0,
     averageAttendance:
       students.length > 0
-        ? Math.round(students.reduce((sum, s) => sum + s.stats.attendanceRate, 0) / students.length)
+        ? Math.round(students.reduce((sum, s) => sum + (s.stats?.attendanceRate || 0), 0) / students.length)
         : 0,
-    totalSubjects: students.length > 0 ? Math.max(...students.map((s) => s.stats.totalSubjects)) : 0,
+    totalSubjects: students.length > 0 ? Math.max(...students.map((s) => s.stats?.totalSubjects || 0)) : 0,
   }
 
   if (loading) {
@@ -447,6 +498,7 @@ export default function TeacherStudentsPage() {
                   <TableRow>
                     <TableHead>Student</TableHead>
                     <TableHead>Class</TableHead>
+                    <TableHead>Performance</TableHead>
                     <TableHead>Attendance</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -483,13 +535,29 @@ export default function TeacherStudentsPage() {
                       <TableCell>
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-lg text-gray-900">{student.stats.attendanceRate}%</span>
-                            {getAttendanceBadge(student.stats.attendanceRate)}
+                            <span className="font-bold text-lg text-gray-900">{student.stats?.averageMark || 0}%</span>
+                            <Badge variant="outline" className="text-xs">
+                              Avg Score
+                            </Badge>
                           </div>
                           <div className="text-xs text-gray-600">
-                            {student.stats.presentDays}/{student.stats.totalAttendanceDays} days
+                            High: {student.stats?.highestMark || 0}% | Low: {student.stats?.lowestMark || 0}%
                           </div>
-                          <Progress value={student.stats.attendanceRate} className="h-2 w-24" />
+                          <Progress value={student.stats?.averageMark || 0} className="h-2 w-24" />
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-lg text-gray-900">
+                              {student.stats?.attendanceRate || 0}%
+                            </span>
+                            {getAttendanceBadge(student.stats?.attendanceRate || 0)}
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            {student.stats?.presentDays || 0}/{student.stats?.totalAttendanceDays || 0} days
+                          </div>
+                          <Progress value={student.stats?.attendanceRate || 0} className="h-2 w-24" />
                         </div>
                       </TableCell>
                       <TableCell>
@@ -627,14 +695,14 @@ export default function TeacherStudentsPage() {
                       {selectedStudent.class.name} • {selectedStudent.gender}, {selectedStudent.age} years
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      {getAttendanceBadge(selectedStudent.stats.attendanceRate)}
+                      {getAttendanceBadge(selectedStudent.stats?.attendanceRate || 0)}
                       <Badge variant="outline" className="bg-white">
-                        {selectedStudent.stats.totalSubjects} Subjects
+                        {selectedStudent.stats?.totalSubjects || 0} Subjects
                       </Badge>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-3xl font-bold text-indigo-600">{selectedStudent.stats.averageMark}%</div>
+                    <div className="text-3xl font-bold text-indigo-600">{selectedStudent.stats?.averageMark || 0}%</div>
                     <div className="text-sm text-gray-600">Overall Average</div>
                   </div>
                 </div>
@@ -700,28 +768,28 @@ export default function TeacherStudentsPage() {
                             <div>
                               <div className="flex justify-between mb-2">
                                 <span className="text-gray-600">Overall Average</span>
-                                <span className="font-bold text-lg">{detailedStudent.stats.averageMark}%</span>
+                                <span className="font-bold text-lg">{detailedStudent.stats?.averageMark || 0}%</span>
                               </div>
-                              <Progress value={detailedStudent.stats.averageMark} className="h-2" />
+                              <Progress value={detailedStudent.stats?.averageMark || 0} className="h-2" />
                             </div>
                             <div>
                               <div className="flex justify-between mb-2">
                                 <span className="text-gray-600">Attendance Rate</span>
-                                <span className="font-bold text-lg">{detailedStudent.stats.attendanceRate}%</span>
+                                <span className="font-bold text-lg">{detailedStudent.stats?.attendanceRate || 0}%</span>
                               </div>
-                              <Progress value={detailedStudent.stats.attendanceRate} className="h-2" />
+                              <Progress value={detailedStudent.stats?.attendanceRate || 0} className="h-2" />
                             </div>
                             <Separator />
                             <div className="grid grid-cols-2 gap-4 text-center">
                               <div>
                                 <div className="text-2xl font-bold text-green-600">
-                                  {detailedStudent.stats.highestMark}%
+                                  {detailedStudent.stats?.highestMark || 0}%
                                 </div>
                                 <div className="text-xs text-gray-600">Highest Mark</div>
                               </div>
                               <div>
                                 <div className="text-2xl font-bold text-orange-600">
-                                  {detailedStudent.stats.lowestMark}%
+                                  {detailedStudent.stats?.lowestMark || 0}%
                                 </div>
                                 <div className="text-xs text-gray-600">Lowest Mark</div>
                               </div>
@@ -818,21 +886,27 @@ export default function TeacherStudentsPage() {
                         <Card>
                           <CardContent className="p-4 text-center">
                             <UserCheck className="w-8 h-8 text-green-600 mx-auto mb-2" />
-                            <div className="text-2xl font-bold text-green-600">{detailedStudent.stats.presentDays}</div>
+                            <div className="text-2xl font-bold text-green-600">
+                              {detailedStudent.stats?.presentDays || 0}
+                            </div>
                             <div className="text-sm text-gray-600">Present Days</div>
                           </CardContent>
                         </Card>
                         <Card>
                           <CardContent className="p-4 text-center">
                             <Clock className="w-8 h-8 text-orange-600 mx-auto mb-2" />
-                            <div className="text-2xl font-bold text-orange-600">{detailedStudent.stats.lateDays}</div>
+                            <div className="text-2xl font-bold text-orange-600">
+                              {detailedStudent.stats?.lateDays || 0}
+                            </div>
                             <div className="text-sm text-gray-600">Late Days</div>
                           </CardContent>
                         </Card>
                         <Card>
                           <CardContent className="p-4 text-center">
                             <Calendar className="w-8 h-8 text-red-600 mx-auto mb-2" />
-                            <div className="text-2xl font-bold text-red-600">{detailedStudent.stats.absentDays}</div>
+                            <div className="text-2xl font-bold text-red-600">
+                              {detailedStudent.stats?.absentDays || 0}
+                            </div>
                             <div className="text-sm text-gray-600">Absent Days</div>
                           </CardContent>
                         </Card>
@@ -840,7 +914,7 @@ export default function TeacherStudentsPage() {
                           <CardContent className="p-4 text-center">
                             <Users className="w-8 h-8 text-blue-600 mx-auto mb-2" />
                             <div className="text-2xl font-bold text-blue-600">
-                              {detailedStudent.stats.excusedDays || 0}
+                              {detailedStudent.stats?.excusedDays || 0}
                             </div>
                             <div className="text-sm text-gray-600">Excused Days</div>
                           </CardContent>

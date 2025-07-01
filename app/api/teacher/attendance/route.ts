@@ -14,19 +14,15 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const date = searchParams.get("date")
 
-    // Get teacher's assigned classes
+    // Get teacher's assigned class
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
-      include: {
-        assignedClasses: true,
-      },
+      select: { classId: true },
     })
 
-    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
+    if (!teacher?.classId) {
       return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
     }
-
-    const teacherClass = teacher.assignedClasses[0]
 
     // Get active academic year
     const activeAcademicYear = await prisma.academicYear.findFirst({
@@ -44,7 +40,7 @@ export async function GET(request: Request) {
     // Get students and their attendance for the specified date
     const students = await prisma.student.findMany({
       where: {
-        classId: teacherClass.id,
+        classId: teacher.classId,
         academicYearId: activeAcademicYear.id,
       },
       include: {
@@ -80,19 +76,15 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { attendanceData, date } = body
 
-    // Get teacher's assigned classes
+    // Get teacher's assigned class
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
-      include: {
-        assignedClasses: true,
-      },
+      select: { classId: true },
     })
 
-    if (!teacher?.assignedClasses || teacher.assignedClasses.length === 0) {
+    if (!teacher?.classId) {
       return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
     }
-
-    const teacherClass = teacher.assignedClasses[0]
 
     // Get active academic year and term
     const activeAcademicYear = await prisma.academicYear.findFirst({
@@ -116,7 +108,7 @@ export async function POST(request: Request) {
     // Delete existing attendance for the date
     await prisma.attendance.deleteMany({
       where: {
-        classId: teacherClass.id,
+        classId: teacher.classId,
         date: new Date(date),
       },
     })
@@ -124,7 +116,7 @@ export async function POST(request: Request) {
     // Create new attendance records
     const attendanceRecords = attendanceData.map((record: any) => ({
       studentId: record.studentId,
-      classId: teacherClass.id,
+      classId: teacher.classId,
       termId: activeTerm.id,
       academicYearId: activeAcademicYear.id,
       date: new Date(date),

@@ -13,43 +13,81 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const studentId = searchParams.get("studentId")
-    const termId = searchParams.get("termId")
 
     if (!studentId) {
       return NextResponse.json({ error: "Student ID is required" }, { status: 400 })
     }
 
-    // Get current academic year
-    const currentAcademicYear = await prisma.academicYear.findFirst({
-      where: { isActive: true },
-    })
-
-    if (!currentAcademicYear) {
-      return NextResponse.json({ error: "No active academic year found" }, { status: 400 })
-    }
-
-    // Verify teacher has access to this student
+    // Get teacher's assigned class
     const teacher = await prisma.user.findUnique({
       where: { id: session.user.id },
       include: {
-        assignedClasses: {
-          where: {
-            academicYearId: currentAcademicYear.id,
-          },
-        },
+        class: true,
       },
     })
 
+    if (!teacher?.class) {
+      return NextResponse.json({ error: "No class assigned to teacher" }, { status: 404 })
+    }
+
+    // Get student details with all related data
     const student = await prisma.student.findUnique({
       where: { id: studentId },
       include: {
-        class: true,
+        class: {
+          select: {
+            id: true,
+            name: true,
+            academicYear: {
+              select: {
+                id: true,
+                year: true,
+                isActive: true,
+              },
+            },
+          },
+        },
         parent: {
           select: {
             id: true,
             name: true,
             email: true,
           },
+        },
+        marks: {
+          include: {
+            subject: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+            term: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: [{ subject: { name: "asc" } }, { term: { name: "asc" } }],
+        },
+        attendance: {
+          select: {
+            id: true,
+            date: true,
+            status: true,
+          },
+          orderBy: {
+            date: "desc",
+          },
+          take: 30, // Last 30 attendance records
+        },
+        reportCards: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 5, // Last 5 report cards
         },
       },
     })
@@ -58,150 +96,72 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 })
     }
 
-    // Check if teacher has access to this student's class
-    const hasAccess = teacher?.assignedClasses?.some((cls) => cls.id === student.classId)
-    if (!hasAccess) {
-      return NextResponse.json({ error: "Access denied to this student" }, { status: 403 })
+    // Verify student belongs to teacher's class
+    if (student.classId !== teacher.class.id) {
+      return NextResponse.json({ error: "Student not in your class" }, { status: 403 })
     }
 
-    // Get detailed marks with term filter if provided
-    const marksWhere: any = {
-      studentId: studentId,
-      academicYearId: currentAcademicYear.id,
-    }
+    // Calculate student statistics
+    const marks = student.marks || []
+    const attendance = student.attendance || []
 
-    if (termId && termId !== "all") {
-      marksWhere.termId = termId
-    }
+    // Attendance statistics
+    const totalAttendanceDays = attendance.length
+    const presentDays = attendance.filter((a) => a.status === "PRESENT").length
+    const absentDays = attendance.filter((a) => a.status === "ABSENT").length
+    const lateDays = attendance.filter((a) => a.status === "LATE").length
+    const attendanceRate = totalAttendanceDays > 0 ? Math.round((presentDays / totalAttendanceDays) * 100) : 0
 
-    const marks = await prisma.mark.findMany({
-      where: marksWhere,
-      include: {
-        subject: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        term: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: [{ term: { name: "asc" } }, { subject: { name: "asc" } }],
-    })
-
-    // Get attendance with term filter if provided
-    const attendanceWhere: any = {
-      studentId: studentId,
-      academicYearId: currentAcademicYear.id,
-    }
-
-    if (termId && termId !== "all") {
-      attendanceWhere.termId = termId
-    }
-
-    const attendance = await prisma.attendance.findMany({
-      where: attendanceWhere,
-      include: {
-        term: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: {
-        date: "desc",
-      },
-    })
-
-    // Get report cards
-    const reportCards = await prisma.reportCard.findMany({
-      where: {
-        studentId: studentId,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    })
-
-    // Calculate detailed statistics
-    const totalAttendance = attendance.length
-    const presentCount = attendance.filter((att) => att.status === "PRESENT").length
-    const absentCount = attendance.filter((att) => att.status === "ABSENT").length
-    const lateCount = attendance.filter((att) => att.status === "LATE").length
-    const excusedCount = attendance.filter((att) => att.status === "EXCUSED").length
-
-    const validMarks = marks.filter((mark) => mark.total && mark.total > 0)
+    // Academic statistics
+    const validMarks = marks.filter((m) => m.total !== null && m.total !== undefined)
     const averageMark =
-      validMarks.length > 0
-        ? Math.round(validMarks.reduce((sum, mark) => sum + (mark.total || 0), 0) / validMarks.length)
-        : 0
-
-    // Group marks by term and subject for better organization
-    const marksByTerm = marks.reduce(
-      (acc, mark) => {
-        const termName = mark.term?.name || "Unknown Term"
-        if (!acc[termName]) {
-          acc[termName] = []
-        }
-        acc[termName].push(mark)
-        return acc
-      },
-      {} as Record<string, typeof marks>,
-    )
+      validMarks.length > 0 ? Math.round(validMarks.reduce((sum, m) => sum + (m.total || 0), 0) / validMarks.length) : 0
+    const highestMark = validMarks.length > 0 ? Math.max(...validMarks.map((m) => m.total || 0)) : 0
+    const lowestMark = validMarks.length > 0 ? Math.min(...validMarks.map((m) => m.total || 0)) : 0
+    const totalSubjects = [...new Set(marks.map((m) => m.subject?.id))].length
 
     // Group marks by subject
-    const marksBySubject = marks.reduce(
-      (acc, mark) => {
-        const subjectName = mark.subject?.name || "Unknown Subject"
-        if (!acc[subjectName]) {
-          acc[subjectName] = []
+    const marksBySubject = marks.reduce((acc: any, mark) => {
+      const subjectId = mark.subject?.id
+      if (!subjectId) return acc
+
+      if (!acc[subjectId]) {
+        acc[subjectId] = {
+          subject: mark.subject,
+          marks: [],
+          average: 0,
         }
-        acc[subjectName].push(mark)
-        return acc
-      },
-      {} as Record<string, typeof marks>,
-    )
+      }
+      acc[subjectId].marks.push(mark)
+      return acc
+    }, {})
 
-    // Calculate grade distribution
-    const gradeDistribution = validMarks.reduce(
-      (acc, mark) => {
-        const grade = mark.grade || "N/A"
-        acc[grade] = (acc[grade] || 0) + 1
-        return acc
-      },
-      {} as Record<string, number>,
-    )
-
-    return NextResponse.json({
-      student: {
-        ...student,
-        marks,
-        attendance,
-        reportCards,
-        stats: {
-          attendanceRate: totalAttendance > 0 ? Math.round((presentCount / totalAttendance) * 100) : 0,
-          averageMark,
-          totalAttendanceDays: totalAttendance,
-          presentDays: presentCount,
-          absentDays: absentCount,
-          lateDays: lateCount,
-          excusedDays: excusedCount,
-          totalSubjects: Object.keys(marksBySubject).length,
-          highestMark: validMarks.length > 0 ? Math.max(...validMarks.map((m) => m.total || 0)) : 0,
-          lowestMark: validMarks.length > 0 ? Math.min(...validMarks.map((m) => m.total || 0)) : 0,
-          gradeDistribution,
-        },
-        marksByTerm,
-        marksBySubject,
-      },
-      academicYear: currentAcademicYear,
+    // Calculate average for each subject
+    Object.keys(marksBySubject).forEach((subjectId) => {
+      const subjectMarks = marksBySubject[subjectId].marks.filter((m: any) => m.total !== null)
+      marksBySubject[subjectId].average =
+        subjectMarks.length > 0
+          ? Math.round(subjectMarks.reduce((sum: number, m: any) => sum + (m.total || 0), 0) / subjectMarks.length)
+          : 0
     })
+
+    const studentDetails = {
+      ...student,
+      stats: {
+        attendanceRate,
+        averageMark,
+        highestMark,
+        lowestMark,
+        totalSubjects,
+        totalAttendanceDays,
+        presentDays,
+        absentDays,
+        lateDays,
+        marksBySubject: Object.values(marksBySubject),
+      },
+    }
+
+    return NextResponse.json({ student: studentDetails })
   } catch (error) {
     console.error("Error fetching student details:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
