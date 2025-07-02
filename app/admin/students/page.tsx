@@ -10,6 +10,15 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 import { toast } from "sonner"
 import {
   Search,
@@ -24,7 +33,10 @@ import {
   Phone,
   Mail,
   MapPin,
+  Filter,
+  Users,
 } from "lucide-react"
+import Link from "next/link"
 
 interface Student {
   id: string
@@ -38,7 +50,6 @@ interface Student {
   photo?: string
   emergencyContact?: string
   medicalInfo?: string
-  registrationNumber?: string
   class?: {
     id: string
     name: string
@@ -64,6 +75,17 @@ interface Student {
   }
   createdAt: string
   updatedAt: string
+  stats?: {
+    attendanceRate: number
+    averageMark: number
+    highestMark: number
+    lowestMark: number
+    totalSubjects: number
+    totalAttendanceDays: number
+    presentDays: number
+    absentDays: number
+    lateDays: number
+  }
 }
 
 interface AcademicYear {
@@ -97,6 +119,13 @@ interface Parent {
   email: string
 }
 
+interface PaginationData {
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
 export default function StudentsPage() {
   const { data: session } = useSession()
   const [students, setStudents] = useState<Student[]>([])
@@ -109,6 +138,12 @@ export default function StudentsPage() {
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>("all")
   const [selectedClass, setSelectedClass] = useState<string>("all")
   const [selectedTerm, setSelectedTerm] = useState<string>("all")
+  const [pagination, setPagination] = useState<PaginationData>({
+    total: 0,
+    page: 1,
+    limit: 12,
+    totalPages: 0,
+  })
   const [isReRegisterDialogOpen, setIsReRegisterDialogOpen] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [reRegisterLoading, setReRegisterLoading] = useState(false)
@@ -120,49 +155,39 @@ export default function StudentsPage() {
   })
 
   useEffect(() => {
-    fetchData()
-  }, [selectedAcademicYear, selectedClass, selectedTerm])
+    fetchInitialData()
+  }, [])
 
-  const fetchData = async () => {
+  useEffect(() => {
+    fetchStudents()
+  }, [selectedAcademicYear, selectedClass, selectedTerm, pagination.page, searchTerm])
+
+  const fetchInitialData = async () => {
     try {
       setLoading(true)
 
-      // Build query parameters
-      const params = new URLSearchParams()
-      if (selectedAcademicYear !== "all") params.append("academicYearId", selectedAcademicYear)
-      if (selectedClass !== "all") params.append("classId", selectedClass)
-      if (selectedTerm !== "all") params.append("termId", selectedTerm)
-
       // Fetch all required data
-      const [studentsRes, academicYearsRes, classesRes, termsRes, parentsRes] = await Promise.all([
-        fetch(`/api/students?${params.toString()}`),
+      const [academicYearsRes, classesRes, termsRes, parentsRes] = await Promise.all([
         fetch("/api/academic-years"),
         fetch("/api/classes"),
         fetch("/api/terms"),
         fetch("/api/users/parents"),
       ])
 
-      if (studentsRes.ok) {
-        const studentsData = await studentsRes.json()
-        setStudents(studentsData.students || [])
-      }
-
       if (academicYearsRes.ok) {
         const academicYearsData = await academicYearsRes.json()
         setAcademicYears(academicYearsData || [])
 
-        // Set active academic year as default if not already selected
-        if (selectedAcademicYear === "all") {
-          const activeYear = academicYearsData?.find((year: AcademicYear) => year.isActive)
-          if (activeYear) {
-            setSelectedAcademicYear(activeYear.id)
-          }
+        // Set active academic year as default
+        const activeYear = academicYearsData?.find((year: AcademicYear) => year.isActive)
+        if (activeYear) {
+          setSelectedAcademicYear(activeYear.id)
         }
       }
 
       if (classesRes.ok) {
         const classesData = await classesRes.json()
-        setClasses(classesData.classes || [])
+        setClasses(classesData || [])
       }
 
       if (termsRes.ok) {
@@ -172,11 +197,46 @@ export default function StudentsPage() {
 
       if (parentsRes.ok) {
         const parentsData = await parentsRes.json()
-        setParents(parentsData.parents || [])
+        setParents(parentsData || [])
       }
     } catch (error) {
-      console.error("Error fetching data:", error)
-      toast.error("Failed to fetch data")
+      console.error("Error fetching initial data:", error)
+      toast.error("Failed to fetch initial data")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchStudents = async () => {
+    try {
+      setLoading(true)
+
+      // Build query parameters
+      const params = new URLSearchParams()
+      if (selectedAcademicYear !== "all") params.append("academicYearId", selectedAcademicYear)
+      if (selectedClass !== "all") params.append("classId", selectedClass)
+      if (selectedTerm !== "all") params.append("termId", selectedTerm)
+      if (searchTerm) params.append("search", searchTerm)
+      params.append("page", pagination.page.toString())
+      params.append("limit", pagination.limit.toString())
+
+      const response = await fetch(`/api/students?${params.toString()}`)
+
+      if (response.ok) {
+        const data = await response.json()
+        setStudents(data.students || [])
+        setPagination({
+          total: data.total || 0,
+          page: data.page || 1,
+          limit: data.limit || 12,
+          totalPages: data.totalPages || 0,
+        })
+      } else {
+        toast.error("Failed to fetch students")
+      }
+    } catch (error) {
+      console.error("Error fetching students:", error)
+      toast.error("Failed to fetch students")
     } finally {
       setLoading(false)
     }
@@ -215,7 +275,7 @@ export default function StudentsPage() {
       if (response.ok) {
         toast.success("Student re-registered successfully!")
         setIsReRegisterDialogOpen(false)
-        fetchData() // Refresh the data
+        fetchStudents() // Refresh the data
       } else {
         const errorData = await response.json()
         toast.error(errorData.error || "Failed to re-register student")
@@ -228,22 +288,19 @@ export default function StudentsPage() {
     }
   }
 
-  const handleEdit = (student: Student) => {
-    // Navigate to edit page or open edit dialog
-    window.location.href = `/admin/students/${student.id}/edit`
-  }
-
-  const handleDelete = async (student: Student) => {
-    if (!confirm(`Are you sure you want to delete ${student.name}?`)) return
+  const handleDeleteStudent = async (studentId: string) => {
+    if (!confirm("Are you sure you want to delete this student? This action cannot be undone.")) {
+      return
+    }
 
     try {
-      const response = await fetch(`/api/students/${student.id}`, {
+      const response = await fetch(`/api/students/${studentId}`, {
         method: "DELETE",
       })
 
       if (response.ok) {
         toast.success("Student deleted successfully")
-        fetchData()
+        fetchStudents() // Refresh the data
       } else {
         const errorData = await response.json()
         toast.error(errorData.error || "Failed to delete student")
@@ -254,14 +311,39 @@ export default function StudentsPage() {
     }
   }
 
-  const filteredStudents = students.filter(
-    (student) =>
-      student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.class?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.parent?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.registrationNumber?.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const handlePageChange = (newPage: number) => {
+    setPagination((prev) => ({ ...prev, page: newPage }))
+  }
+
+  const handleFilterChange = (filterType: string, value: string) => {
+    // Reset to page 1 when filters change
+    setPagination((prev) => ({ ...prev, page: 1 }))
+
+    switch (filterType) {
+      case "academicYear":
+        setSelectedAcademicYear(value)
+        // Reset class and term when academic year changes
+        setSelectedClass("all")
+        setSelectedTerm("all")
+        break
+      case "class":
+        setSelectedClass(value)
+        break
+      case "term":
+        setSelectedTerm(value)
+        break
+    }
+  }
+
+  const getAvailableClasses = () => {
+    if (selectedAcademicYear === "all") return classes
+    return classes.filter((cls) => cls.academicYear?.id === selectedAcademicYear)
+  }
+
+  const getAvailableTerms = () => {
+    if (selectedAcademicYear === "all") return terms
+    return terms.filter((term) => term.academicYear.id === selectedAcademicYear)
+  }
 
   const getNewAcademicYear = () => {
     return academicYears.find((year) => year.id === reRegisterForm.academicYearId)
@@ -279,7 +361,90 @@ export default function StudentsPage() {
     return parents.find((parent) => parent.id === reRegisterForm.parentId)
   }
 
-  if (loading) {
+  const getReRegisterAvailableClasses = () => {
+    if (reRegisterForm.academicYearId) {
+      return classes.filter((cls) => cls.academicYear?.id === reRegisterForm.academicYearId)
+    }
+    return classes
+  }
+
+  const getReRegisterAvailableTerms = () => {
+    if (reRegisterForm.academicYearId) {
+      return terms.filter((term) => term.academicYear.id === reRegisterForm.academicYearId)
+    }
+    return terms
+  }
+
+  const renderPagination = () => {
+    if (pagination.totalPages <= 1) return null
+
+    const pages = []
+    const currentPage = pagination.page
+    const totalPages = pagination.totalPages
+
+    // Always show first page
+    pages.push(1)
+
+    // Add ellipsis if needed
+    if (currentPage > 3) {
+      pages.push("ellipsis1")
+    }
+
+    // Add pages around current page
+    for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+      if (!pages.includes(i)) {
+        pages.push(i)
+      }
+    }
+
+    // Add ellipsis if needed
+    if (currentPage < totalPages - 2) {
+      pages.push("ellipsis2")
+    }
+
+    // Always show last page if more than 1 page
+    if (totalPages > 1 && !pages.includes(totalPages)) {
+      pages.push(totalPages)
+    }
+
+    return (
+      <Pagination className="mt-8">
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              onClick={() => currentPage > 1 && handlePageChange(currentPage - 1)}
+              className={currentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+            />
+          </PaginationItem>
+
+          {pages.map((page, index) => (
+            <PaginationItem key={index}>
+              {typeof page === "string" ? (
+                <PaginationEllipsis />
+              ) : (
+                <PaginationLink
+                  onClick={() => handlePageChange(page)}
+                  isActive={currentPage === page}
+                  className="cursor-pointer"
+                >
+                  {page}
+                </PaginationLink>
+              )}
+            </PaginationItem>
+          ))}
+
+          <PaginationItem>
+            <PaginationNext
+              onClick={() => currentPage < totalPages && handlePageChange(currentPage + 1)}
+              className={currentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    )
+  }
+
+  if (loading && students.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
@@ -293,17 +458,31 @@ export default function StudentsPage() {
         <div>
           <h1 className="text-3xl font-bold">Students Management</h1>
           <p className="text-muted-foreground">Manage student registrations and information</p>
+          <div className="mt-2 flex items-center space-x-4 text-sm">
+            <div className="flex items-center space-x-1 text-blue-600 font-medium">
+              <Users className="h-4 w-4" />
+              <span>Total: {pagination.total}</span>
+            </div>
+            <div className="text-muted-foreground">
+              Page {pagination.page} of {pagination.totalPages}
+            </div>
+          </div>
         </div>
-        <Button onClick={() => (window.location.href = "/admin/students/register")}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Student
-        </Button>
+        <Link href="/admin/students/register">
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Student
+          </Button>
+        </Link>
       </div>
 
       {/* Filters */}
       <Card>
         <CardHeader>
-          <CardTitle>Filters</CardTitle>
+          <CardTitle className="flex items-center space-x-2">
+            <Filter className="h-5 w-5" />
+            <span>Filters</span>
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -313,7 +492,7 @@ export default function StudentsPage() {
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="search"
-                  placeholder="Search by name, email, class..."
+                  placeholder="Search by name, email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-8"
@@ -322,7 +501,7 @@ export default function StudentsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="academic-year">Academic Year</Label>
-              <Select value={selectedAcademicYear} onValueChange={setSelectedAcademicYear}>
+              <Select value={selectedAcademicYear} onValueChange={(value) => handleFilterChange("academicYear", value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select academic year" />
                 </SelectTrigger>
@@ -338,13 +517,13 @@ export default function StudentsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="class">Class</Label>
-              <Select value={selectedClass} onValueChange={setSelectedClass}>
+              <Select value={selectedClass} onValueChange={(value) => handleFilterChange("class", value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select class" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Classes</SelectItem>
-                  {classes.map((cls) => (
+                  {getAvailableClasses().map((cls) => (
                     <SelectItem key={cls.id} value={cls.id}>
                       {cls.name}
                     </SelectItem>
@@ -354,15 +533,15 @@ export default function StudentsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="term">Term</Label>
-              <Select value={selectedTerm} onValueChange={setSelectedTerm}>
+              <Select value={selectedTerm} onValueChange={(value) => handleFilterChange("term", value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select term" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Terms</SelectItem>
-                  {terms.map((term) => (
+                  {getAvailableTerms().map((term) => (
                     <SelectItem key={term.id} value={term.id}>
-                      {term.name} - {term.academicYear.year}
+                      {term.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -372,9 +551,16 @@ export default function StudentsPage() {
         </CardContent>
       </Card>
 
+      {/* Loading State */}
+      {loading && (
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      )}
+
       {/* Students Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredStudents.map((student) => (
+        {students.map((student) => (
           <Card key={student.id} className="hover:shadow-lg transition-shadow">
             <CardHeader className="pb-3">
               <div className="flex items-center space-x-3">
@@ -393,9 +579,6 @@ export default function StudentsPage() {
                   <CardDescription>
                     {student.class?.name} • {student.academicYear?.year}
                   </CardDescription>
-                  {student.registrationNumber && (
-                    <p className="text-xs text-muted-foreground">Reg: {student.registrationNumber}</p>
-                  )}
                 </div>
               </div>
             </CardHeader>
@@ -434,9 +617,11 @@ export default function StudentsPage() {
               </div>
 
               {student.parent && (
-                <div className="text-sm">
+                <div className="text-sm border-t pt-2">
                   <span className="text-muted-foreground">Parent: </span>
                   <span className="font-medium">{student.parent.name}</span>
+                  <br />
+                  <span className="text-xs text-muted-foreground">{student.parent.email}</span>
                 </div>
               )}
 
@@ -444,6 +629,15 @@ export default function StudentsPage() {
                 <div className="text-sm">
                   <span className="text-muted-foreground">Term: </span>
                   <span className="font-medium">{student.term.name}</span>
+                </div>
+              )}
+
+              {student.stats && (
+                <div className="text-xs text-muted-foreground border-t pt-2">
+                  <div className="grid grid-cols-2 gap-1">
+                    <span>Attendance: {student.stats.attendanceRate}%</span>
+                    <span>Average: {student.stats.averageMark}%</span>
+                  </div>
                 </div>
               )}
 
@@ -458,14 +652,16 @@ export default function StudentsPage() {
                     <RefreshCw className="h-3 w-3 mr-1" />
                     Re-Register
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => handleEdit(student)}>
-                    <Edit className="h-3 w-3" />
-                  </Button>
+                  <Link href={`/admin/students/${student.id}/edit`}>
+                    <Button size="sm" variant="outline">
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                  </Link>
                   <Button
                     size="sm"
                     variant="outline"
                     className="text-red-600 hover:bg-red-50 bg-transparent"
-                    onClick={() => handleDelete(student)}
+                    onClick={() => handleDeleteStudent(student.id)}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -481,7 +677,7 @@ export default function StudentsPage() {
         ))}
       </div>
 
-      {filteredStudents.length === 0 && (
+      {students.length === 0 && !loading && (
         <Card>
           <CardContent className="text-center py-12">
             <GraduationCap className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -494,6 +690,9 @@ export default function StudentsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Pagination */}
+      {renderPagination()}
 
       {/* Re-Registration Dialog */}
       <Dialog open={isReRegisterDialogOpen} onOpenChange={setIsReRegisterDialogOpen}>
@@ -538,10 +737,6 @@ export default function StudentsPage() {
                       <span className="text-sm text-muted-foreground">Parent:</span>
                       <span className="text-sm font-medium">{selectedStudent?.parent?.name || "Not set"}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Reg Number:</span>
-                      <span className="text-sm font-medium">{selectedStudent?.registrationNumber || "Not set"}</span>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -571,11 +766,11 @@ export default function StudentsPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Term:</span>
-                      <span className="text-sm font-medium">{getNewTerm()?.name || "Not set"}</span>
+                      <span className="text-sm font-medium">{getNewTerm()?.name || "Not selected"}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Parent:</span>
-                      <span className="text-sm font-medium">{getNewParent()?.name || "Not set"}</span>
+                      <span className="text-sm font-medium">{getNewParent()?.name || "Not selected"}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -589,7 +784,9 @@ export default function StudentsPage() {
                   <Label htmlFor="new-academic-year">Academic Year *</Label>
                   <Select
                     value={reRegisterForm.academicYearId}
-                    onValueChange={(value) => setReRegisterForm((prev) => ({ ...prev, academicYearId: value }))}
+                    onValueChange={(value) =>
+                      setReRegisterForm((prev) => ({ ...prev, academicYearId: value, classId: "" }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select academic year" />
@@ -609,12 +806,13 @@ export default function StudentsPage() {
                   <Select
                     value={reRegisterForm.classId}
                     onValueChange={(value) => setReRegisterForm((prev) => ({ ...prev, classId: value }))}
+                    disabled={!reRegisterForm.academicYearId}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select class" />
                     </SelectTrigger>
                     <SelectContent>
-                      {classes.map((cls) => (
+                      {getReRegisterAvailableClasses().map((cls) => (
                         <SelectItem key={cls.id} value={cls.id}>
                           {cls.name}
                         </SelectItem>
@@ -628,15 +826,16 @@ export default function StudentsPage() {
                   <Select
                     value={reRegisterForm.termId}
                     onValueChange={(value) => setReRegisterForm((prev) => ({ ...prev, termId: value }))}
+                    disabled={!reRegisterForm.academicYearId}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select term" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">No term</SelectItem>
-                      {terms.map((term) => (
+                      {getReRegisterAvailableTerms().map((term) => (
                         <SelectItem key={term.id} value={term.id}>
-                          {term.name} - {term.academicYear.year}
+                          {term.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
