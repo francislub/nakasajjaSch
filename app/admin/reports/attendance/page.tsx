@@ -13,7 +13,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast"
 import {
   Search,
-  Download,
   CalendarIcon,
   Users,
   CheckCircle,
@@ -22,6 +21,7 @@ import {
   BarChart3,
   TrendingUp,
   TrendingDown,
+  FileText,
 } from "lucide-react"
 import {
   Chart as ChartJS,
@@ -49,6 +49,7 @@ interface AttendanceRecord {
     name: string
     photo?: string
     class: {
+      id: string
       name: string
     }
   }
@@ -67,10 +68,12 @@ interface AttendanceStats {
     late: number
   }>
   classAttendance: Array<{
+    classId: string
     className: string
     present: number
     absent: number
     late: number
+    total: number
     rate: number
   }>
   monthlyStats: Array<{
@@ -84,42 +87,91 @@ interface Class {
   name: string
 }
 
+interface AcademicYear {
+  id: string
+  year: string
+  isActive: boolean
+}
+
+interface Term {
+  id: string
+  name: string
+}
+
 export default function AdminAttendanceReportsPage() {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [classes, setClasses] = useState<Class[]>([])
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
+  const [terms, setTerms] = useState<Term[]>([])
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedClass, setSelectedClass] = useState<string>("")
+  const [selectedClass, setSelectedClass] = useState<string>("all")
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>("")
+  const [selectedTerm, setSelectedTerm] = useState<string>("all")
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
     from: new Date(new Date().setDate(new Date().getDate() - 7)),
     to: new Date(),
   })
   const [isLoading, setIsLoading] = useState(true)
+  const [isDownloading, setIsDownloading] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
-    fetchAttendanceRecords()
-    fetchClasses()
-    fetchStats()
-  }, [selectedClass, selectedDate, searchTerm])
+    fetchInitialData()
+  }, [])
+
+  useEffect(() => {
+    if (selectedAcademicYear) {
+      fetchAttendanceRecords()
+      fetchStats()
+    }
+  }, [selectedClass, selectedDate, searchTerm, selectedAcademicYear, selectedTerm])
+
+  useEffect(() => {
+    if (selectedAcademicYear) {
+      fetchTerms(selectedAcademicYear)
+    }
+  }, [selectedAcademicYear])
+
+  const fetchInitialData = async () => {
+    try {
+      setIsLoading(true)
+      await Promise.all([fetchClasses(), fetchAcademicYears()])
+    } catch (error) {
+      console.error("Error fetching initial data:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load initial data",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const fetchAttendanceRecords = async () => {
+    if (!selectedAcademicYear) return
+
     try {
       const params = new URLSearchParams()
-      if (selectedClass) params.append("classId", selectedClass)
+      params.append("academicYearId", selectedAcademicYear)
+      if (selectedClass && selectedClass !== "all") params.append("classId", selectedClass)
+      if (selectedTerm && selectedTerm !== "all") params.append("termId", selectedTerm)
       if (searchTerm) params.append("search", searchTerm)
       params.append("date", selectedDate.toISOString().split("T")[0])
 
       const response = await fetch(`/api/admin/reports/attendance?${params}`)
       if (response.ok) {
         const data = await response.json()
-        setAttendanceRecords(data.records)
+        setAttendanceRecords(data.records || [])
+      } else {
+        console.error("Failed to fetch attendance records")
+        setAttendanceRecords([])
       }
     } catch (error) {
       console.error("Error fetching attendance records:", error)
-    } finally {
-      setIsLoading(false)
+      setAttendanceRecords([])
     }
   }
 
@@ -128,60 +180,388 @@ export default function AdminAttendanceReportsPage() {
       const response = await fetch("/api/classes")
       if (response.ok) {
         const data = await response.json()
-        setClasses(data.classes)
+        setClasses(data.classes || [])
+      } else {
+        setClasses([])
       }
     } catch (error) {
       console.error("Error fetching classes:", error)
+      setClasses([])
+    }
+  }
+
+  const fetchAcademicYears = async () => {
+    try {
+      const response = await fetch("/api/academic-years")
+      if (response.ok) {
+        const data = await response.json()
+        setAcademicYears(data || [])
+        // Set active academic year as default
+        const activeYear = data?.find((year: AcademicYear) => year.isActive)
+        if (activeYear) {
+          setSelectedAcademicYear(activeYear.id)
+          fetchTerms(activeYear.id)
+        }
+      } else {
+        setAcademicYears([])
+      }
+    } catch (error) {
+      console.error("Error fetching academic years:", error)
+      setAcademicYears([])
+    }
+  }
+
+  const fetchTerms = async (academicYearId: string) => {
+    try {
+      const response = await fetch(`/api/terms?academicYearId=${academicYearId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setTerms(data || [])
+      } else {
+        setTerms([])
+      }
+    } catch (error) {
+      console.error("Error fetching terms:", error)
+      setTerms([])
     }
   }
 
   const fetchStats = async () => {
+    if (!selectedAcademicYear) return
+
     try {
       const params = new URLSearchParams()
+      params.append("academicYearId", selectedAcademicYear)
+      if (selectedTerm && selectedTerm !== "all") params.append("termId", selectedTerm)
       params.append("from", dateRange.from.toISOString().split("T")[0])
       params.append("to", dateRange.to.toISOString().split("T")[0])
-      if (selectedClass) params.append("classId", selectedClass)
+      if (selectedClass && selectedClass !== "all") params.append("classId", selectedClass)
 
       const response = await fetch(`/api/admin/reports/attendance/stats?${params}`)
       if (response.ok) {
         const data = await response.json()
         setStats(data)
+      } else {
+        console.error("Failed to fetch stats")
       }
     } catch (error) {
       console.error("Error fetching stats:", error)
     }
   }
 
+  const generateAttendancePDF = () => {
+    if (!stats) return ""
+
+    const currentDate = new Date().toLocaleDateString()
+    const academicYear = academicYears.find((y) => y.id === selectedAcademicYear)?.year || ""
+    const term = selectedTerm !== "all" ? terms.find((t) => t.id === selectedTerm)?.name || "" : "All Terms"
+    const className = selectedClass !== "all" ? classes.find((c) => c.id === selectedClass)?.name || "" : "All Classes"
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Attendance Report</title>
+        <style>
+          @page {
+            size: A4;
+            margin: 20mm;
+          }
+          
+          body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
+            margin: 0;
+            padding: 0;
+          }
+          
+          .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 20px;
+          }
+          
+          .school-name {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #2563eb;
+          }
+          
+          .school-motto {
+            font-style: italic;
+            margin-bottom: 10px;
+            color: #666;
+          }
+          
+          .report-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 15px;
+            color: #333;
+          }
+          
+          .report-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+          }
+          
+          .info-section {
+            flex: 1;
+          }
+          
+          .info-label {
+            font-weight: bold;
+            color: #555;
+          }
+          
+          .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+          }
+          
+          .stat-card {
+            background-color: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+          }
+          
+          .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e40af;
+          }
+          
+          .stat-label {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 5px;
+          }
+          
+          .attendance-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 40px;
+          }
+          
+          .attendance-table th,
+          .attendance-table td {
+            border: 1px solid #ddd;
+            padding: 12px 8px;
+            text-align: center;
+          }
+          
+          .attendance-table th {
+            background-color: #3b82f6;
+            color: white;
+            font-weight: bold;
+          }
+          
+          .attendance-table tr:nth-child(even) {
+            background-color: #f8f9fa;
+          }
+          
+          .attendance-table tr:hover {
+            background-color: #e3f2fd;
+          }
+          
+          .total-row {
+            background-color: #e3f2fd !important;
+            font-weight: bold;
+          }
+          
+          .signature-section {
+            margin-top: 50px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+          }
+          
+          .signature-box {
+            text-align: center;
+            min-width: 200px;
+          }
+          
+          .signature-line {
+            border-bottom: 2px solid #333;
+            margin-bottom: 10px;
+            height: 40px;
+          }
+          
+          .signature-label {
+            font-weight: bold;
+            color: #555;
+          }
+          
+          .footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 10px;
+            color: #666;
+            border-top: 1px solid #ddd;
+            padding-top: 15px;
+          }
+          
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="school-name">HOLY FAMILY JUNIOR SCHOOL-NAKASAJJA</div>
+          <div class="school-motto">"TIMOR DEI PRINCIPUM SAPIENTIAE"</div>
+          <div>P.O BOX 25258, KAMPALA 'U'</div>
+          <div>TEL: 0774-305717 / 0704-305747 / 0784-450896/0709-986390</div>
+          <div class="report-title">ATTENDANCE REPORT</div>
+        </div>
+
+        <div class="report-info">
+          <div class="info-section">
+            <div><span class="info-label">Academic Year:</span> ${academicYear}</div>
+            <div><span class="info-label">Term:</span> ${term}</div>
+          </div>
+          <div class="info-section">
+            <div><span class="info-label">Class:</span> ${className}</div>
+            <div><span class="info-label">Date:</span> ${format(selectedDate, "PPP")}</div>
+          </div>
+          <div class="info-section">
+            <div><span class="info-label">Report Generated:</span> ${currentDate}</div>
+            <div><span class="info-label">Period:</span> ${format(dateRange.from, "MMM dd")} - ${format(dateRange.to, "MMM dd")}</div>
+          </div>
+        </div>
+
+        <div class="summary-stats">
+          <div class="stat-card">
+            <div class="stat-number">${stats.totalStudents}</div>
+            <div class="stat-label">Total Students</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">${stats.presentToday}</div>
+            <div class="stat-label">Present Today</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">${stats.absentToday}</div>
+            <div class="stat-label">Absent Today</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">${stats.attendanceRate}%</div>
+            <div class="stat-label">Attendance Rate</div>
+          </div>
+        </div>
+
+        <table class="attendance-table">
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th>Total Students</th>
+              <th>Present</th>
+              <th>Absent</th>
+              <th>Late</th>
+              <th>Attendance Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${stats.classAttendance
+              .map(
+                (classData) => `
+              <tr>
+                <td>${classData.className}</td>
+                <td>${classData.total}</td>
+                <td>${classData.present}</td>
+                <td>${classData.absent}</td>
+                <td>${classData.late}</td>
+                <td>${classData.rate}%</td>
+              </tr>
+            `,
+              )
+              .join("")}
+            <tr class="total-row">
+              <td><strong>TOTAL</strong></td>
+              <td><strong>${stats.classAttendance.reduce((sum, c) => sum + c.total, 0)}</strong></td>
+              <td><strong>${stats.classAttendance.reduce((sum, c) => sum + c.present, 0)}</strong></td>
+              <td><strong>${stats.classAttendance.reduce((sum, c) => sum + c.absent, 0)}</strong></td>
+              <td><strong>${stats.classAttendance.reduce((sum, c) => sum + c.late, 0)}</strong></td>
+              <td><strong>${Math.round(stats.classAttendance.reduce((sum, c) => sum + c.rate, 0) / stats.classAttendance.length)}%</strong></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="signature-section">
+          <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signature-label">CLASS TEACHER</div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signature-label">HEADTEACHER</div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signature-label">DATE</div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p>This report is generated electronically and is valid without signature unless otherwise stated.</p>
+          <p>Holy Family Junior School - Nakasajja | Generated on ${currentDate}</p>
+        </div>
+      </body>
+      </html>
+    `
+  }
+
   const handleDownloadReport = async () => {
+    if (!stats) {
+      toast({
+        title: "Error",
+        description: "No data available for download",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsDownloading(true)
     try {
-      const params = new URLSearchParams()
-      params.append("from", dateRange.from.toISOString().split("T")[0])
-      params.append("to", dateRange.to.toISOString().split("T")[0])
-      if (selectedClass) params.append("classId", selectedClass)
+      const htmlContent = generateAttendancePDF()
+      const newWindow = window.open("", "_blank")
+      if (newWindow) {
+        newWindow.document.write(htmlContent)
+        newWindow.document.close()
 
-      const response = await fetch(`/api/admin/reports/attendance/download?${params}`)
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = `attendance-report-${format(dateRange.from, "yyyy-MM-dd")}-to-${format(dateRange.to, "yyyy-MM-dd")}.xlsx`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
-
-        toast({
-          title: "Success",
-          description: "Attendance report downloaded successfully",
-        })
+        // Auto-print after a short delay
+        setTimeout(() => {
+          newWindow.print()
+        }, 1000)
       }
+
+      toast({
+        title: "Success",
+        description: "Attendance report opened for printing",
+      })
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to download attendance report",
+        description: "Failed to generate attendance report",
         variant: "destructive",
       })
+    } finally {
+      setIsDownloading(false)
     }
   }
 
@@ -296,11 +676,102 @@ export default function AdminAttendanceReportsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Attendance Reports</h1>
           <p className="text-gray-600 mt-2">Monitor and analyze student attendance patterns</p>
         </div>
-        <Button onClick={handleDownloadReport} className="bg-green-600 hover:bg-green-700">
-          <Download className="w-4 h-4 mr-2" />
-          Download Report
+        <Button
+          onClick={handleDownloadReport}
+          className="bg-green-600 hover:bg-green-700"
+          disabled={isDownloading || !stats}
+        >
+          {isDownloading ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              Generating...
+            </>
+          ) : (
+            <>
+              <FileText className="w-4 h-4 mr-2" />
+              Download PDF Report
+            </>
+          )}
         </Button>
       </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-4">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <Input
+            placeholder="Search students..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select value={selectedAcademicYear} onValueChange={setSelectedAcademicYear}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Select Academic Year" />
+          </SelectTrigger>
+          <SelectContent>
+            {academicYears.map((year) => (
+              <SelectItem key={year.id} value={year.id}>
+                {year.year} {year.isActive && "(Active)"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={selectedTerm} onValueChange={setSelectedTerm}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Filter by term" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Terms</SelectItem>
+            {terms.map((term) => (
+              <SelectItem key={term.id} value={term.id}>
+                {term.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={selectedClass} onValueChange={setSelectedClass}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Filter by class" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Classes</SelectItem>
+            {classes.map((cls) => (
+              <SelectItem key={cls.id} value={cls.id}>
+                {cls.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-48 bg-transparent">
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {format(selectedDate, "PPP")}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={(date) => date && setSelectedDate(date)}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      {/* No Data Message */}
+      {!selectedAcademicYear && (
+        <Card className="bg-white shadow-lg border-0">
+          <CardContent className="text-center py-12">
+            <Users className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+            <h3 className="text-lg font-semibold text-gray-600 mb-2">Select Academic Year</h3>
+            <p className="text-gray-500">Please select an academic year to view attendance reports.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       {stats && (
@@ -474,110 +945,70 @@ export default function AdminAttendanceReportsPage() {
         </Card>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <Input
-            placeholder="Search students..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Select value={selectedClass} onValueChange={setSelectedClass}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Filter by class" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Classes</SelectItem>
-            {classes?.map((cls) => (
-              <SelectItem key={cls.id} value={cls.id}>
-                {cls.name}
-              </SelectItem>
-            )) || []}
-          </SelectContent>
-        </Select>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="w-48">
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {format(selectedDate, "PPP")}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={(date) => date && setSelectedDate(date)}
-              initialFocus
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
-
       {/* Attendance Records Table */}
-      <Card className="bg-white shadow-lg border-0">
-        <CardHeader>
-          <CardTitle>Attendance Records</CardTitle>
-          <CardDescription>
-            Showing attendance for {format(selectedDate, "PPPP")} - {filteredRecords.length} records
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Student</TableHead>
-                <TableHead>Class</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Time</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredRecords.map((record) => (
-                <TableRow key={record.id}>
-                  <TableCell>
-                    <div className="flex items-center space-x-3">
-                      <Avatar className="w-10 h-10">
-                        <AvatarImage src={record.student.photo || "/placeholder.svg"} alt={record.student.name} />
-                        <AvatarFallback>
-                          {record.student.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium">{record.student.name}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{record.student.class.name}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center space-x-2">
-                      {getStatusIcon(record.status)}
-                      {getStatusBadge(record.status)}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-sm text-gray-600">{format(new Date(record.date), "HH:mm")}</span>
-                  </TableCell>
+      {selectedAcademicYear && (
+        <Card className="bg-white shadow-lg border-0">
+          <CardHeader>
+            <CardTitle>Attendance Records</CardTitle>
+            <CardDescription>
+              Showing attendance for {format(selectedDate, "PPPP")} - {filteredRecords.length} records
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Student</TableHead>
+                  <TableHead>Class</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Time</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredRecords.map((record) => (
+                  <TableRow key={record.id}>
+                    <TableCell>
+                      <div className="flex items-center space-x-3">
+                        <Avatar className="w-10 h-10">
+                          <AvatarImage src={record.student.photo || "/placeholder.svg"} alt={record.student.name} />
+                          <AvatarFallback>
+                            {record.student.name
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{record.student.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{record.student.class.name}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center space-x-2">
+                        {getStatusIcon(record.status)}
+                        {getStatusBadge(record.status)}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-gray-600">{format(new Date(record.date), "HH:mm")}</span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
 
-          {filteredRecords.length === 0 && (
-            <div className="text-center py-12">
-              <Users className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-              <h3 className="text-lg font-semibold text-gray-600 mb-2">No Attendance Records</h3>
-              <p className="text-gray-500">No attendance records found for the selected date and filters.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            {filteredRecords.length === 0 && selectedAcademicYear && (
+              <div className="text-center py-12">
+                <Users className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                <h3 className="text-lg font-semibold text-gray-600 mb-2">No Attendance Records</h3>
+                <p className="text-gray-500">No attendance records found for the selected date and filters.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

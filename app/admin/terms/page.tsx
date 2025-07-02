@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Calendar, Users, Edit, Trash2 } from "lucide-react"
+import { Plus, Calendar, Users, Edit, Trash2, RefreshCw, GraduationCap } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 interface Term {
@@ -38,14 +38,55 @@ interface Term {
 interface AcademicYear {
   id: string
   year: string
+  isActive: boolean
+}
+
+interface Student {
+  id: string
+  name: string
+  email?: string
+  class?: {
+    id: string
+    name: string
+  }
+  parent?: {
+    id: string
+    name: string
+  }
+  academicYear?: {
+    id: string
+    year: string
+  }
+  term?: {
+    id: string
+    name: string
+  }
+}
+
+interface Class {
+  id: string
+  name: string
+}
+
+interface Parent {
+  id: string
+  name: string
+  email: string
 }
 
 export default function TermsPage() {
   const [terms, setTerms] = useState<Term[]>([])
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [parents, setParents] = useState<Parent[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isReRegisterDialogOpen, setIsReRegisterDialogOpen] = useState(false)
   const [editingTerm, setEditingTerm] = useState<Term | null>(null)
+  const [selectedTerm, setSelectedTerm] = useState<Term | null>(null)
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([])
+  const [reRegisterLoading, setReRegisterLoading] = useState(false)
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
@@ -55,25 +96,45 @@ export default function TermsPage() {
     academicYearId: "",
   })
 
+  const [reRegisterForm, setReRegisterForm] = useState({
+    academicYearId: "",
+    classId: "",
+    termId: "",
+    parentId: "",
+  })
+
   useEffect(() => {
     fetchData()
   }, [])
 
   const fetchData = async () => {
     try {
-      const [termsResponse, academicYearsResponse] = await Promise.all([
-        fetch("/api/terms"),
-        fetch("/api/academic-years"),
-      ])
+      const [termsResponse, academicYearsResponse, studentsResponse, classesResponse, parentsResponse] =
+        await Promise.all([
+          fetch("/api/terms"),
+          fetch("/api/academic-years"),
+          fetch("/api/students"),
+          fetch("/api/classes"),
+          fetch("/api/users/parents"),
+        ])
 
       if (!termsResponse.ok || !academicYearsResponse.ok) {
         throw new Error("Failed to fetch data")
       }
 
-      const [termsData, academicYearsData] = await Promise.all([termsResponse.json(), academicYearsResponse.json()])
+      const [termsData, academicYearsData, studentsData, classesData, parentsData] = await Promise.all([
+        termsResponse.json(),
+        academicYearsResponse.json(),
+        studentsResponse.json(),
+        classesResponse.json(),
+        parentsResponse.json(),
+      ])
 
       setTerms(termsData || [])
       setAcademicYears(academicYearsData || [])
+      setStudents(studentsData.students || [])
+      setClasses(classesData.classes || [])
+      setParents(parentsData.parents || [])
     } catch (error) {
       console.error("Error fetching data:", error)
       toast({
@@ -161,11 +222,101 @@ export default function TermsPage() {
     }
   }
 
+  const handleReRegister = (term: Term) => {
+    setSelectedTerm(term)
+    setReRegisterForm({
+      academicYearId: "",
+      classId: "",
+      termId: "",
+      parentId: "",
+    })
+    setSelectedStudents([])
+    setIsReRegisterDialogOpen(true)
+  }
+
+  const getTermStudents = (term: Term) => {
+    return students.filter(
+      (student) => student.term?.id === term.id && student.academicYear?.id === term.academicYear.id,
+    )
+  }
+
+  const handleStudentSelection = (studentId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedStudents((prev) => [...prev, studentId])
+    } else {
+      setSelectedStudents((prev) => prev.filter((id) => id !== studentId))
+    }
+  }
+
+  const submitReRegistration = async () => {
+    if (selectedStudents.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please select at least one student to re-register",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!reRegisterForm.academicYearId || !reRegisterForm.classId) {
+      toast({
+        title: "Error",
+        description: "Academic year and class are required",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setReRegisterLoading(true)
+
+      const promises = selectedStudents.map((studentId) =>
+        fetch(`/api/students/${studentId}/re-register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(reRegisterForm),
+        }),
+      )
+
+      const responses = await Promise.all(promises)
+      const results = await Promise.all(responses.map((r) => r.json()))
+
+      const successful = responses.filter((r) => r.ok).length
+      const failed = responses.length - successful
+
+      if (successful > 0) {
+        toast({
+          title: "Success",
+          description: `${successful} student(s) re-registered successfully${failed > 0 ? `, ${failed} failed` : ""}`,
+        })
+        setIsReRegisterDialogOpen(false)
+        fetchData()
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to re-register students",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error re-registering students:", error)
+      toast({
+        title: "Error",
+        description: "Failed to re-register students",
+        variant: "destructive",
+      })
+    } finally {
+      setReRegisterLoading(false)
+    }
+  }
+
   const getStudentCount = (term: Term): number => {
     if (term.studentCount !== undefined) return term.studentCount
     if (term._count?.students !== undefined) return term._count.students
     if (term.students?.length !== undefined) return term.students.length
-    return 0
+    return getTermStudents(term).length
   }
 
   if (loading) {
@@ -180,8 +331,8 @@ export default function TermsPage() {
     <div className="p-6 space-y-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Terms</h1>
-          <p className="text-gray-600 mt-1">Manage academic terms</p>
+          <h1 className="text-3xl font-bold text-gray-900">Terms Management</h1>
+          <p className="text-gray-600 mt-1">Manage academic terms and student enrollments</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
@@ -210,7 +361,7 @@ export default function TermsPage() {
                   <SelectContent>
                     {academicYears.map((year) => (
                       <SelectItem key={year.id} value={year.id}>
-                        {year.year}
+                        {year.year} {year.isActive && "(Active)"}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -307,6 +458,18 @@ export default function TermsPage() {
                   {getStudentCount(term)} students enrolled
                 </div>
               </div>
+
+              {getStudentCount(term) > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleReRegister(term)}
+                  className="w-full border-green-600 text-green-600 hover:bg-green-50"
+                >
+                  <RefreshCw className="w-3 h-3 mr-2" />
+                  Re-Register Students
+                </Button>
+              )}
             </CardContent>
           </Card>
         ))}
@@ -325,6 +488,189 @@ export default function TermsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Re-Registration Dialog */}
+      <Dialog open={isReRegisterDialogOpen} onOpenChange={setIsReRegisterDialogOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <RefreshCw className="h-5 w-5 text-green-600" />
+              <span>Re-Register Students from {selectedTerm?.name}</span>
+            </DialogTitle>
+            <DialogDescription>
+              Select students from {selectedTerm?.name} ({selectedTerm?.academicYear?.year}) to re-register for a new
+              academic year, class, or term.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* New Registration Form */}
+            <Card className="border-green-200 bg-green-50/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg text-green-800 flex items-center space-x-2">
+                  <GraduationCap className="h-4 w-4" />
+                  <span>New Registration Details</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-academic-year">Academic Year *</Label>
+                    <Select
+                      value={reRegisterForm.academicYearId}
+                      onValueChange={(value) => setReRegisterForm((prev) => ({ ...prev, academicYearId: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select academic year" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {academicYears.map((year) => (
+                          <SelectItem key={year.id} value={year.id}>
+                            {year.year} {year.isActive && "(Active)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="new-class">Class *</Label>
+                    <Select
+                      value={reRegisterForm.classId}
+                      onValueChange={(value) => setReRegisterForm((prev) => ({ ...prev, classId: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select class" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {classes.map((cls) => (
+                          <SelectItem key={cls.id} value={cls.id}>
+                            {cls.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="new-term">Term</Label>
+                    <Select
+                      value={reRegisterForm.termId}
+                      onValueChange={(value) => setReRegisterForm((prev) => ({ ...prev, termId: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select term" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No term</SelectItem>
+                        {terms.map((term) => (
+                          <SelectItem key={term.id} value={term.id}>
+                            {term.name} - {term.academicYear.year}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="new-parent">Parent</Label>
+                    <Select
+                      value={reRegisterForm.parentId}
+                      onValueChange={(value) => setReRegisterForm((prev) => ({ ...prev, parentId: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select parent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No parent</SelectItem>
+                        {parents.map((parent) => (
+                          <SelectItem key={parent.id} value={parent.id}>
+                            {parent.name} ({parent.email})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Students Selection */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Select Students to Re-Register</span>
+                  <span className="text-sm font-normal text-muted-foreground">
+                    {selectedStudents.length} of {getTermStudents(selectedTerm || ({} as Term)).length} selected
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {getTermStudents(selectedTerm || ({} as Term)).map((student) => (
+                    <div key={student.id} className="flex items-center space-x-3 p-2 border rounded-lg">
+                      <input
+                        type="checkbox"
+                        id={`student-${student.id}`}
+                        checked={selectedStudents.includes(student.id)}
+                        onChange={(e) => handleStudentSelection(student.id, e.target.checked)}
+                        className="rounded border-gray-300"
+                      />
+                      <label htmlFor={`student-${student.id}`} className="flex-1 cursor-pointer">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">{student.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {student.class?.name} • {student.parent?.name}
+                            </p>
+                          </div>
+                          <div className="text-sm text-muted-foreground">{student.email}</div>
+                        </div>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+
+                {getTermStudents(selectedTerm || ({} as Term)).length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No students found for this term</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Actions */}
+            <div className="flex justify-end space-x-2 pt-4 border-t">
+              <Button variant="outline" onClick={() => setIsReRegisterDialogOpen(false)} disabled={reRegisterLoading}>
+                Cancel
+              </Button>
+              <Button
+                onClick={submitReRegistration}
+                disabled={
+                  reRegisterLoading ||
+                  selectedStudents.length === 0 ||
+                  !reRegisterForm.academicYearId ||
+                  !reRegisterForm.classId
+                }
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {reRegisterLoading ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Re-Registering...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Re-Register {selectedStudents.length} Student(s)
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

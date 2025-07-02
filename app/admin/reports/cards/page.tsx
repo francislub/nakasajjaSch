@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Search, Eye, FileText, CheckCircle, XCircle, Calendar, BarChart3, Loader2, Printer } from "lucide-react"
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement } from "chart.js"
 import { Bar, Doughnut } from "react-chartjs-2"
+import { generateReportCardHTML } from "@/lib/report-card-generator"
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement)
 
@@ -23,16 +24,34 @@ interface ReportCard {
     name: string
     photo?: string
     class: {
+      id: string
       name: string
+      subjects: Array<{
+        id: string
+        name: string
+        code: string
+        category: string
+      }>
     }
     parent?: {
       name: string
       email: string
     }
     marks: Array<{
+      id: string
       subject: {
+        id: string
         name: string
         code: string
+        category: string
+        subjectTeachers: Array<{
+          id: string
+          classId: string
+          teacher: {
+            id: string
+            name: string
+          }
+        }>
       }
       total: number
       grade: string
@@ -45,9 +64,22 @@ interface ReportCard {
         name: string
       }
       term: {
+        id: string
         name: string
       }
+      academicYear: {
+        id: string
+        year: string
+      }
     }>
+    term: {
+      id: string
+      name: string
+    }
+    academicYear: {
+      id: string
+      year: string
+    }
   }
   discipline: string
   cleanliness: string
@@ -62,15 +94,19 @@ interface ReportCard {
   approvedAt?: string
   createdAt: string
   term: {
+    id: string
     name: string
   }
   academicYear: {
+    id: string
     name: string
   }
   gradingSystem?: Array<{
+    id: string
     grade: string
     minMark: number
     maxMark: number
+    comment?: string
   }>
 }
 
@@ -118,9 +154,11 @@ interface ClassReportCards {
   approvedReports: number
   pendingReports: number
   gradingSystem?: Array<{
+    id: string
     grade: string
     minMark: number
     maxMark: number
+    comment?: string
   }>
 }
 
@@ -128,9 +166,11 @@ interface BulkPreviewData {
   reportCards: ReportCard[]
   totalCount: number
   gradingSystem?: Array<{
+    id: string
     grade: string
     minMark: number
     maxMark: number
+    comment?: string
   }>
   filters: {
     academicYear?: string
@@ -159,6 +199,15 @@ export default function AdminReportCardsPage() {
   const [isClassPreviewOpen, setIsClassPreviewOpen] = useState(false)
   const [isBulkPreviewOpen, setIsBulkPreviewOpen] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [gradingSystem, setGradingSystem] = useState<
+    Array<{
+      id: string
+      grade: string
+      minMark: number
+      maxMark: number
+      comment?: string
+    }>
+  >([])
   const { toast } = useToast()
 
   useEffect(() => {
@@ -181,7 +230,7 @@ export default function AdminReportCardsPage() {
   const fetchInitialData = async () => {
     try {
       setIsLoading(true)
-      await Promise.all([fetchClasses(), fetchAcademicYears()])
+      await Promise.all([fetchClasses(), fetchAcademicYears(), fetchGradingSystem()])
     } catch (error) {
       console.error("Error fetching initial data:", error)
       toast({
@@ -191,6 +240,18 @@ export default function AdminReportCardsPage() {
       })
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const fetchGradingSystem = async () => {
+    try {
+      const response = await fetch("/api/grading-system")
+      if (response.ok) {
+        const data = await response.json()
+        setGradingSystem(data || [])
+      }
+    } catch (error) {
+      console.error("Error fetching grading system:", error)
     }
   }
 
@@ -535,6 +596,28 @@ export default function AdminReportCardsPage() {
       })
     } finally {
       setIsDownloading(false)
+    }
+  }
+
+  const handlePreviewWithGenerator = (reportCard: ReportCard) => {
+    try {
+      const htmlContent = generateReportCardHTML({
+        reportCard,
+        student: reportCard.student,
+        gradingSystem: gradingSystem,
+      })
+
+      const newWindow = window.open("", "_blank")
+      if (newWindow) {
+        newWindow.document.write(htmlContent)
+        newWindow.document.close()
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to generate report card preview",
+        variant: "destructive",
+      })
     }
   }
 
@@ -919,7 +1002,12 @@ export default function AdminReportCardsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => fetchReportCardPreview(report.id)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handlePreviewWithGenerator(report)}
+                          title="Preview with Generator"
+                        >
                           <Eye className="h-4 w-4" />
                         </Button>
                         {!report.isApproved && (
@@ -965,225 +1053,74 @@ export default function AdminReportCardsPage() {
           </DialogHeader>
           {selectedReportCard && (
             <div className="space-y-4">
-              {/* Report Card Preview */}
-              <div className="border-2 border-black p-4 bg-white text-black font-mono text-xs">
-                {/* Header */}
-                <div className="text-center border-b-2 border-black pb-2 mb-4 relative">
-                  <div className="absolute left-2 top-2 w-12 h-12 border border-black bg-gray-100 flex items-center justify-center text-xs">
-                    LOGO
-                  </div>
-                  <div className="absolute right-2 top-2 w-12 h-16 border border-black bg-gray-100 flex items-center justify-center text-xs">
-                    PHOTO
-                  </div>
-                  <div className="text-lg font-bold mb-1">HOLY FAMILY JUNIOR SCHOOL-NAKASAJJA</div>
-                  <div className="text-xs italic mb-1">"TIMOR DEI PRINCIPUM SAPIENTIAE"</div>
-                  <div className="text-xs mb-2">
-                    P.O BOX 25258, KAMPALA 'U'
-                    <br />
-                    TE: 0774-305717 / 0704-305747 / 0784-450896/0709-986390
-                  </div>
-                  <div className="text-sm font-bold underline">PROGRESSIVE REPORT</div>
-                </div>
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground mb-4">
+                  This is a simplified preview. Use the "Preview with Generator" button for the full formatted report
+                  card.
+                </p>
+                <Button onClick={() => handlePreviewWithGenerator(selectedReportCard)} className="mb-4">
+                  <Eye className="mr-2 h-4 w-4" />
+                  View Full Report Card
+                </Button>
+              </div>
 
-                {/* Student Info */}
-                <div className="flex justify-between mb-4 text-xs">
-                  <div>
-                    NAME: <strong>{selectedReportCard.student.name}</strong>
-                  </div>
-                  <div>
-                    DIVISION: <strong>{selectedReportCard.student.class.name}</strong>
-                  </div>
-                </div>
-                <div className="flex justify-between mb-4 text-xs">
-                  <div>
-                    CLASS: <strong>{selectedReportCard.student.class.name}</strong>
-                  </div>
-                  <div>
-                    TERM: <strong>{selectedReportCard.term.name}</strong>
-                  </div>
-                  <div>
-                    DATE: <strong>{new Date().toLocaleDateString()}</strong>
-                  </div>
-                </div>
-
-                {/* Main Content */}
-                <div className="flex gap-4">
-                  {/* Personal Assessment */}
-                  <div className="w-48">
-                    <div className="bg-gray-100 font-bold text-center p-2 border border-black mb-1 text-xs">
-                      Personal Assessment
+              <div className="grid gap-4">
+                <div>
+                  <h4 className="font-semibold mb-2">Student Information</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      Name: <strong>{selectedReportCard.student.name}</strong>
                     </div>
-                    {[
-                      { label: "Discipline", value: selectedReportCard.discipline },
-                      { label: "Cleanliness", value: selectedReportCard.cleanliness },
-                      { label: "Class work Presentation", value: selectedReportCard.classWorkPresentation },
-                      { label: "Adherence to School", value: selectedReportCard.adherenceToSchool },
-                      { label: "Co-curricular Activities", value: selectedReportCard.coCurricularActivities },
-                      { label: "Consideration to others", value: selectedReportCard.considerationToOthers },
-                      { label: "Speaking English", value: selectedReportCard.speakingEnglish },
-                    ].map((item, index) => (
-                      <div
-                        key={index}
-                        className="border border-black p-2 mb-1 flex justify-between items-center text-xs"
-                      >
-                        <span>{item.label}</span>
-                        <span>
-                          <strong>{item.value || ""}</strong>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Academic Section */}
-                  <div className="flex-1">
-                    <table className="w-full border-collapse text-xs">
-                      <thead>
-                        <tr>
-                          <th className="border border-black p-1 bg-gray-100">GRADE</th>
-                          <th className="border border-black p-1 bg-gray-100">SUBJECT ASSESSED</th>
-                          <th className="border border-black p-1 bg-gray-100">OUT OF</th>
-                          <th className="border border-black p-1 bg-gray-100">H.P</th>
-                          <th className="border border-black p-1 bg-gray-100">B.O.T</th>
-                          <th className="border border-black p-1 bg-gray-100">AG</th>
-                          <th className="border border-black p-1 bg-gray-100">MID TERM</th>
-                          <th className="border border-black p-1 bg-gray-100">AG</th>
-                          <th className="border border-black p-1 bg-gray-100">E.O.T</th>
-                          <th className="border border-black p-1 bg-gray-100">AG</th>
-                          <th className="border border-black p-1 bg-gray-100">REMARKS</th>
-                          <th className="border border-black p-1 bg-gray-100">INITIAL</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {["ENGLISH", "MATHEMATICS", "SCIENCE", "S.ST AND R.E"].map((subject) => {
-                          const mark = selectedReportCard.student.marks.find((m) => m.subject.name === subject)
-                          return (
-                            <tr key={subject}>
-                              <td className="border border-black p-1 text-center">
-                                <strong>{mark?.grade || ""}</strong>
-                              </td>
-                              <td className="border border-black p-1 text-center">
-                                <strong>{subject}</strong>
-                              </td>
-                              <td className="border border-black p-1 text-center">
-                                <strong>100</strong>
-                              </td>
-                              <td className="border border-black p-1 text-center">{mark?.homework || ""}</td>
-                              <td className="border border-black p-1 text-center">{mark?.bot || ""}</td>
-                              <td className="border border-black p-1 text-center"></td>
-                              <td className="border border-black p-1 text-center">{mark?.midterm || ""}</td>
-                              <td className="border border-black p-1 text-center"></td>
-                              <td className="border border-black p-1 text-center">{mark?.eot || ""}</td>
-                              <td className="border border-black p-1 text-center"></td>
-                              <td className="border border-black p-1 text-center">{mark?.remarks || ""}</td>
-                              <td className="border border-black p-1 text-center">
-                                <strong>{mark?.createdBy?.name?.charAt(0) || ""}</strong>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                        <tr className="bg-gray-100">
-                          <td className="border border-black p-1 text-center"></td>
-                          <td className="border border-black p-1 text-center">
-                            <strong>TOTAL</strong>
-                          </td>
-                          <td className="border border-black p-1 text-center">
-                            <strong>400</strong>
-                          </td>
-                          <td className="border border-black p-1 text-center">
-                            <strong>
-                              {selectedReportCard.student.marks.reduce((sum, mark) => sum + (mark.homework || 0), 0)}
-                            </strong>
-                          </td>
-                          <td className="border border-black p-1 text-center">
-                            <strong>
-                              {selectedReportCard.student.marks.reduce((sum, mark) => sum + (mark.bot || 0), 0)}
-                            </strong>
-                          </td>
-                          <td className="border border-black p-1 text-center"></td>
-                          <td className="border border-black p-1 text-center">
-                            <strong>
-                              {selectedReportCard.student.marks.reduce((sum, mark) => sum + (mark.midterm || 0), 0)}
-                            </strong>
-                          </td>
-                          <td className="border border-black p-1 text-center"></td>
-                          <td className="border border-black p-1 text-center">
-                            <strong>
-                              {selectedReportCard.student.marks.reduce((sum, mark) => sum + (mark.eot || 0), 0)}
-                            </strong>
-                          </td>
-                          <td className="border border-black p-1 text-center"></td>
-                          <td className="border border-black p-1 text-center"></td>
-                          <td className="border border-black p-1 text-center"></td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Grading Section */}
-                <div className="mt-4 text-center">
-                  <div className="font-bold underline mb-2 text-sm">GRADING MARKS</div>
-                  {selectedReportCard.gradingSystem && (
-                    <table className="w-full border-collapse text-xs mb-2">
-                      <thead>
-                        <tr>
-                          {selectedReportCard.gradingSystem.map((grade, index) => (
-                            <th key={index} className="border border-black p-1 bg-gray-100">
-                              {grade.minMark}-{grade.maxMark}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          {selectedReportCard.gradingSystem.map((grade, index) => (
-                            <td key={index} className="border border-black p-1 text-center">
-                              <strong>{grade.grade}</strong>
-                            </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  )}
-                  <div className="text-xs mb-2">
-                    <strong>KEY:</strong>{" "}
-                    {selectedReportCard.gradingSystem
-                      ?.map((grade) => `${grade.minMark}-${grade.maxMark}-${grade.grade}`)
-                      .join(" ")}
-                  </div>
-                  <div className="text-xs">
-                    <strong>A-VERY GOOD B-GOOD C-FAIR D-NEEDS IMPROVEMENT</strong>
-                  </div>
-                </div>
-
-                {/* Comments */}
-                <div className="mt-4 text-xs">
-                  <div className="mb-3">
-                    <strong>CLASS TEACHER'S REPORT:</strong>
-                    <div className="border-b border-black mt-1 pb-1 min-h-[20px]">
-                      {selectedReportCard.classTeacherComment || ""}
+                    <div>
+                      Class: <strong>{selectedReportCard.student.class.name}</strong>
                     </div>
-                    <div className="text-right mt-1">SIGN_____________</div>
-                  </div>
-                  <div className="mb-3">
-                    <strong>HEADTEACHER'S COMMENT:</strong>
-                    <div className="border-b border-black mt-1 pb-1 min-h-[20px]">
-                      {selectedReportCard.headteacherComment || ""}
+                    <div>
+                      Term: <strong>{selectedReportCard.term.name}</strong>
                     </div>
-                    <div className="text-right mt-1">SIGN_____________</div>
+                    <div>
+                      Academic Year: <strong>{selectedReportCard.academicYear.name}</strong>
+                    </div>
                   </div>
                 </div>
 
-                {/* Footer */}
-                <div className="mt-4 text-xs">
-                  <div className="mb-2">
-                    <strong>NEXT TERM BEGINS ON:</strong>_________________________________
-                    <strong>ENDS ON:</strong>_______________________________________________
+                <div>
+                  <h4 className="font-semibold mb-2">Personal Assessment</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      Discipline: <strong>{selectedReportCard.discipline}</strong>
+                    </div>
+                    <div>
+                      Cleanliness: <strong>{selectedReportCard.cleanliness}</strong>
+                    </div>
+                    <div>
+                      Class Work: <strong>{selectedReportCard.classWorkPresentation}</strong>
+                    </div>
+                    <div>
+                      Adherence: <strong>{selectedReportCard.adherenceToSchool}</strong>
+                    </div>
                   </div>
-                  <div className="text-center mb-2">
-                    At least 50% of the school fees should be paid before the Term Begins
+                </div>
+
+                <div>
+                  <h4 className="font-semibold mb-2">Academic Performance</h4>
+                  <div className="text-sm">
+                    <p>Subjects: {selectedReportCard.student.marks.length} subjects assessed</p>
+                    <p>
+                      Total Marks: {selectedReportCard.student.marks.reduce((sum, mark) => sum + (mark.total || 0), 0)}
+                    </p>
                   </div>
-                  <div className="text-center font-bold">NOTE: This report is not valid without a school stamp.</div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold mb-2">Comments</h4>
+                  <div className="text-sm space-y-2">
+                    <div>
+                      <strong>Class Teacher:</strong> {selectedReportCard.classTeacherComment || "No comment"}
+                    </div>
+                    <div>
+                      <strong>Headteacher:</strong> {selectedReportCard.headteacherComment || "No comment"}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1284,7 +1221,7 @@ export default function AdminReportCardsPage() {
                       <TableCell>{new Date(report.createdAt).toLocaleDateString()}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" onClick={() => fetchReportCardPreview(report.id)}>
+                          <Button size="sm" variant="outline" onClick={() => handlePreviewWithGenerator(report)}>
                             <Eye className="h-4 w-4" />
                           </Button>
                           <Button
@@ -1396,7 +1333,7 @@ export default function AdminReportCardsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button size="sm" variant="outline" onClick={() => fetchReportCardPreview(report.id)}>
+                        <Button size="sm" variant="outline" onClick={() => handlePreviewWithGenerator(report)}>
                           <Eye className="h-4 w-4" />
                         </Button>
                       </TableCell>

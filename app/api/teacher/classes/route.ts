@@ -93,7 +93,6 @@ export async function GET() {
                 id: true,
                 date: true,
                 status: true,
-                remarks: true,
               },
               orderBy: {
                 date: "desc",
