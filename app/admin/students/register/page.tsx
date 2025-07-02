@@ -3,18 +3,24 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { UserPlus, Plus, Search, Upload, X } from 'lucide-react'
-import { useToast } from "@/hooks/use-toast"
-import { useRouter } from "next/navigation"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
+import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { useToast } from "@/hooks/use-toast"
+import { Upload, User, BookOpen, Camera, X, Plus, UserPlus } from "lucide-react"
 
 interface Class {
   id: string
@@ -26,111 +32,110 @@ interface Term {
   name: string
 }
 
+interface AcademicYear {
+  id: string
+  year: string
+  isActive: boolean
+}
+
 interface Parent {
   id: string
   name: string
   email: string
-  children: Array<{
-    id: string
-    name: string
-    class: { name: string }
-  }>
 }
 
 export default function RegisterStudentPage() {
+  const router = useRouter()
+  const { toast } = useToast()
+
   const [classes, setClasses] = useState<Class[]>([])
   const [terms, setTerms] = useState<Term[]>([])
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
   const [parents, setParents] = useState<Parent[]>([])
-  const [loading, setLoading] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [parentSearch, setParentSearch] = useState("")
-  const [showNewParent, setShowNewParent] = useState(false)
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string>("")
-  const { toast } = useToast()
-  const router = useRouter()
-  const [parentLoading, setParentLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [isParentDialogOpen, setIsParentDialogOpen] = useState(false)
+  const [isCreatingParent, setIsCreatingParent] = useState(false)
 
   const [formData, setFormData] = useState({
     name: "",
+    email: "",
+    dateOfBirth: "",
     gender: "",
-    age: "",
+    address: "",
+    phone: "",
+    parentId: "",
     classId: "",
     termId: "",
-    parentId: "",
-    // New parent fields
-    parentName: "",
-    parentEmail: "",
-    parentPassword: "",
+    academicYearId: "",
+    emergencyContact: "",
+    medicalInfo: "",
+    age: "",
+  })
+
+  const [parentFormData, setParentFormData] = useState({
+    name: "",
+    email: "",
+    password: "",
+    phone: "",
+    address: "",
   })
 
   useEffect(() => {
-    fetchData()
+    fetchInitialData()
   }, [])
 
-  useEffect(() => {
-    if (parentSearch) {
-      fetchParents()
-    }
-  }, [parentSearch])
-
-  const fetchData = async () => {
-    setLoading(true)
+  const fetchInitialData = async () => {
     try {
-      const [classesResponse, termsResponse] = await Promise.all([fetch("/api/classes"), fetch("/api/terms")])
+      const [classesResponse, termsResponse, academicYearsResponse, parentsResponse] = await Promise.all([
+        fetch("/api/classes"),
+        fetch("/api/terms"),
+        fetch("/api/academic-years"),
+        fetch("/api/users/parents"),
+      ])
 
-      if (classesResponse.ok && termsResponse.ok) {
-        const [classesData, termsData] = await Promise.all([classesResponse.json(), termsResponse.json()])
-        setClasses(classesData)
-        setTerms(termsData)
+      const [classesData, termsData, academicYearsData, parentsData] = await Promise.all([
+        classesResponse.json(),
+        termsResponse.json(),
+        academicYearsResponse.json(),
+        parentsResponse.json(),
+      ])
+
+      setClasses(classesData || [])
+      setTerms(termsData || [])
+      setAcademicYears(academicYearsData || [])
+      setParents(parentsData || [])
+
+      // Set active academic year as default
+      const activeYear = academicYearsData.find((year: AcademicYear) => year.isActive)
+      if (activeYear) {
+        setFormData((prev) => ({ ...prev, academicYearId: activeYear.id }))
       }
     } catch (error) {
+      console.error("Error fetching initial data:", error)
       toast({
         title: "Error",
-        description: "Failed to fetch data",
+        description: "Failed to load form data",
         variant: "destructive",
       })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchParents = async () => {
-    if (!parentSearch.trim()) {
-      setParents([])
-      return
-    }
-
-    setParentLoading(true)
-    try {
-      const response = await fetch(`/api/users/parents?search=${encodeURIComponent(parentSearch.trim())}&limit=10`)
-      if (response.ok) {
-        const data = await response.json()
-        setParents(data.parents || data || [])
-      } else {
-        console.error("Failed to fetch parents:", response.statusText)
-        setParents([])
-      }
-    } catch (error) {
-      console.error("Error fetching parents:", error)
-      setParents([])
-    } finally {
-      setParentLoading(false)
     }
   }
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Validate file size (5MB limit)
       if (file.size > 5 * 1024 * 1024) {
         toast({
           title: "Error",
-          description: "Image size should be less than 5MB",
+          description: "Image size must be less than 5MB",
           variant: "destructive",
         })
         return
       }
 
+      // Validate file type
       if (!file.type.startsWith("image/")) {
         toast({
           title: "Error",
@@ -140,7 +145,7 @@ export default function RegisterStudentPage() {
         return
       }
 
-      setImageFile(file)
+      setSelectedFile(file)
       const reader = new FileReader()
       reader.onload = (e) => {
         setImagePreview(e.target?.result as string)
@@ -150,8 +155,8 @@ export default function RegisterStudentPage() {
   }
 
   const removeImage = () => {
-    setImageFile(null)
-    setImagePreview("")
+    setSelectedFile(null)
+    setImagePreview(null)
   }
 
   const uploadImage = async (file: File): Promise<string> => {
@@ -171,28 +176,94 @@ export default function RegisterStudentPage() {
     return data.url
   }
 
+  const handleCreateParent = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsCreatingParent(true)
+
+    try {
+      // Validate parent form data
+      if (!parentFormData.name || !parentFormData.email || !parentFormData.password) {
+        toast({
+          title: "Error",
+          description: "Name, email, and password are required for parent",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const response = await fetch("/api/users/parents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(parentFormData),
+      })
+
+      if (response.ok) {
+        const newParent = await response.json()
+
+        // Add new parent to the list
+        setParents((prev) => [...prev, newParent])
+
+        // Select the newly created parent
+        setFormData((prev) => ({ ...prev, parentId: newParent.id }))
+
+        // Reset parent form
+        setParentFormData({
+          name: "",
+          email: "",
+          password: "",
+          phone: "",
+          address: "",
+        })
+
+        // Close dialog
+        setIsParentDialogOpen(false)
+
+        toast({
+          title: "Success",
+          description: "Parent created successfully",
+        })
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to create parent")
+      }
+    } catch (error) {
+      console.error("Error creating parent:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create parent",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreatingParent(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSubmitting(true)
+    setIsLoading(true)
 
     try {
       let photoUrl = ""
 
       // Upload image if selected
-      if (imageFile) {
-        photoUrl = await uploadImage(imageFile)
+      if (selectedFile) {
+        photoUrl = await uploadImage(selectedFile)
       }
 
-      const submitData = {
+      const studentData = {
         ...formData,
         photo: photoUrl,
-        createNewParent: showNewParent,
+        age: formData.age ? Number.parseInt(formData.age) : null,
       }
 
       const response = await fetch("/api/students", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(submitData),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(studentData),
       })
 
       if (response.ok) {
@@ -202,126 +273,146 @@ export default function RegisterStudentPage() {
         })
         router.push("/admin/students")
       } else {
-        const error = await response.json()
-        throw new Error(error.error || "Failed to register student")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to register student")
       }
     } catch (error) {
+      console.error("Error registering student:", error)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to register student",
         variant: "destructive",
       })
     } finally {
-      setIsSubmitting(false)
+      setIsLoading(false)
     }
   }
 
-  const selectParent = (parent: Parent) => {
-    setFormData({ ...formData, parentId: parent.id })
-    setShowNewParent(false)
-    setParentSearch("")
+  const handleInputChange = (field: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
-  const selectedParent = parents.find((p) => p.id === formData.parentId)
+  const handleParentInputChange = (field: string, value: string) => {
+    setParentFormData((prev) => ({ ...prev, [field]: value }))
+  }
 
   return (
     <div className="p-6 space-y-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Register Student</h1>
-          <p className="text-gray-600 mt-1">Add a new student to the system</p>
+          <h1 className="text-3xl font-bold text-gray-900">Register New Student</h1>
+          <p className="text-gray-600 mt-2">Add a new student to the school system</p>
         </div>
+        <Button variant="outline" onClick={() => router.back()}>
+          Back
+        </Button>
       </div>
 
-      <Card className="bg-white shadow-xl border-0">
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <UserPlus className="w-6 h-6 text-blue-600" />
-            <span>Student Registration Form</span>
-          </CardTitle>
-          <CardDescription>Fill in all required information to register a new student</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Student Information */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-900 border-b border-blue-200 pb-2">Student Information</h3>
-              
-              {/* Photo Upload */}
-              <div className="flex items-center space-x-4">
-                <div className="flex-shrink-0">
-                  <Avatar className="w-24 h-24">
-                    <AvatarImage src={imagePreview || "/placeholder.svg"} alt="Student photo" />
-                    <AvatarFallback className="text-lg">
-                      {formData.name
-                        ? formData.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .toUpperCase()
-                        : "ST"}
-                    </AvatarFallback>
-                  </Avatar>
-                </div>
-                <div className="flex-1">
-                  <Label htmlFor="photo">Student Photo (Optional)</Label>
-                  <div className="mt-2 flex items-center space-x-2">
-                    <Input
-                      id="photo"
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageChange}
-                      className="hidden"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => document.getElementById("photo")?.click()}
-                      className="flex items-center space-x-2"
-                    >
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Student Photo */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Camera className="w-5 h-5 text-blue-600" />
+                <span>Student Photo</span>
+              </CardTitle>
+              <CardDescription>Upload a photo for the student (optional)</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col items-center space-y-4">
+                <Avatar className="w-32 h-32">
+                  <AvatarImage src={imagePreview || "/placeholder.svg"} alt="Student photo" />
+                  <AvatarFallback className="text-2xl">
+                    <User className="w-16 h-16" />
+                  </AvatarFallback>
+                </Avatar>
+
+                <div className="flex space-x-2">
+                  <Label htmlFor="photo-upload" className="cursor-pointer">
+                    <div className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                       <Upload className="w-4 h-4" />
                       <span>Upload Photo</span>
+                    </div>
+                  </Label>
+                  <Input
+                    id="photo-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                  {imagePreview && (
+                    <Button type="button" variant="outline" size="sm" onClick={removeImage}>
+                      <X className="w-4 h-4" />
                     </Button>
-                    {imagePreview && (
-                      <Button type="button" variant="outline" size="sm" onClick={removeImage}>
-                        <X className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">Maximum file size: 5MB. Supported formats: JPG, PNG, GIF</p>
+                  )}
                 </div>
-              </div>
 
+                <p className="text-xs text-gray-500 text-center">
+                  Maximum file size: 5MB
+                  <br />
+                  Supported formats: JPG, PNG, GIF
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Basic Information */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <User className="w-5 h-5 text-blue-600" />
+                <span>Basic Information</span>
+              </CardTitle>
+              <CardDescription>Enter the student's personal details</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="name">Full Name *</Label>
                   <Input
                     id="name"
-                    placeholder="Enter student's full name"
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    onChange={(e) => handleInputChange("name", e.target.value)}
+                    placeholder="Enter student's full name"
                     required
                   />
                 </div>
                 <div>
-                  <Label htmlFor="age">Age *</Label>
+                  <Label htmlFor="email">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => handleInputChange("email", e.target.value)}
+                    placeholder="student@example.com"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                  <Input
+                    id="dateOfBirth"
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={(e) => handleInputChange("dateOfBirth", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="age">Age</Label>
                   <Input
                     id="age"
                     type="number"
-                    placeholder="Enter age"
                     value={formData.age}
-                    onChange={(e) => setFormData({ ...formData, age: e.target.value })}
-                    required
-                    min="3"
-                    max="18"
+                    onChange={(e) => handleInputChange("age", e.target.value)}
+                    placeholder="Enter student's age"
+                    min="1"
+                    max="25"
                   />
                 </div>
                 <div>
                   <Label htmlFor="gender">Gender *</Label>
-                  <Select
-                    value={formData.gender}
-                    onValueChange={(value) => setFormData({ ...formData, gender: value })}
-                  >
+                  <Select value={formData.gender} onValueChange={(value) => handleInputChange("gender", value)}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select gender" />
                     </SelectTrigger>
@@ -332,219 +423,232 @@ export default function RegisterStudentPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="classId">Class *</Label>
-                  <Select
-                    value={formData.classId}
-                    onValueChange={(value) => setFormData({ ...formData, classId: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select class" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {classes.map((cls) => (
-                        <SelectItem key={cls.id} value={cls.id}>
-                          {cls.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(e) => handleInputChange("phone", e.target.value)}
+                    placeholder="+256 700 000 000"
+                  />
                 </div>
-                <div className="md:col-span-2">
-                  <Label htmlFor="termId">Term *</Label>
-                  <Select
-                    value={formData.termId}
-                    onValueChange={(value) => setFormData({ ...formData, termId: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select term" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {terms.map((term) => (
-                        <SelectItem key={term.id} value={term.id}>
-                          {term.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div>
+                  <Label htmlFor="emergencyContact">Emergency Contact</Label>
+                  <Input
+                    id="emergencyContact"
+                    value={formData.emergencyContact}
+                    onChange={(e) => handleInputChange("emergencyContact", e.target.value)}
+                    placeholder="+256 700 000 000"
+                  />
                 </div>
               </div>
-            </div>
-
-            <Separator />
-
-            {/* Parent Selection */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Parent Information</h3>
-                <div className="flex space-x-2">
-                  <Button
-                    type="button"
-                    variant={!showNewParent ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setShowNewParent(false)}
-                  >
-                    <Search className="w-4 h-4 mr-2" />
-                    Select Existing
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={showNewParent ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setShowNewParent(true)}
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create New
-                  </Button>
-                </div>
+              <div>
+                <Label htmlFor="address">Address</Label>
+                <Textarea
+                  id="address"
+                  value={formData.address}
+                  onChange={(e) => handleInputChange("address", e.target.value)}
+                  placeholder="Enter student's address"
+                  rows={3}
+                />
               </div>
+              <div>
+                <Label htmlFor="medicalInfo">Medical Information</Label>
+                <Textarea
+                  id="medicalInfo"
+                  value={formData.medicalInfo}
+                  onChange={(e) => handleInputChange("medicalInfo", e.target.value)}
+                  placeholder="Any medical conditions, allergies, or special needs"
+                  rows={3}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-              {!showNewParent ? (
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="parentSearch">Search for Parent</Label>
-                    <Input
-                      id="parentSearch"
-                      placeholder="Type parent name or email to search..."
-                      value={parentSearch}
-                      onChange={(e) => setParentSearch(e.target.value)}
-                    />
-                  </div>
-
-                  {selectedParent && (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="font-medium text-green-900">{selectedParent.name}</h4>
-                          <p className="text-sm text-green-700">{selectedParent.email}</p>
-                          {selectedParent.children.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {selectedParent.children.map((child) => (
-                                <Badge key={child.id} variant="secondary" className="text-xs">
-                                  {child.name} ({child.class.name})
-                                </Badge>
-                              ))}
-                            </div>
+        {/* Academic Information */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <BookOpen className="w-5 h-5 text-blue-600" />
+              <span>Academic Information</span>
+            </CardTitle>
+            <CardDescription>Select the student's academic details</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <Label htmlFor="academicYear">Academic Year *</Label>
+                <Select
+                  value={formData.academicYearId}
+                  onValueChange={(value) => handleInputChange("academicYearId", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select academic year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {academicYears.map((year) => (
+                      <SelectItem key={year.id} value={year.id}>
+                        <div className="flex items-center space-x-2">
+                          <span>{year.year}</span>
+                          {year.isActive && (
+                            <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Active</span>
                           )}
                         </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setFormData({ ...formData, parentId: "" })}
-                        >
-                          Change
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {parentSearch && parents.length > 0 && !selectedParent && (
-                    <div className="border border-gray-200 rounded-lg max-h-60 overflow-y-auto">
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="term">Term</Label>
+                <Select value={formData.termId} onValueChange={(value) => handleInputChange("termId", value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select term" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No term selected</SelectItem>
+                    {terms.map((term) => (
+                      <SelectItem key={term.id} value={term.id}>
+                        {term.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="class">Class *</Label>
+                <Select value={formData.classId} onValueChange={(value) => handleInputChange("classId", value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select class" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes.map((cls) => (
+                      <SelectItem key={cls.id} value={cls.id}>
+                        {cls.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="parent">Parent/Guardian</Label>
+                <div className="flex space-x-2">
+                  <Select value={formData.parentId} onValueChange={(value) => handleInputChange("parentId", value)}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select parent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No parent assigned</SelectItem>
                       {parents.map((parent) => (
-                        <div
-                          key={parent.id}
-                          className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                          onClick={() => selectParent(parent)}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="font-medium">{parent.name}</h4>
-                              <p className="text-sm text-gray-600">{parent.email}</p>
-                              {parent.children.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {parent.children.map((child) => (
-                                    <Badge key={child.id} variant="outline" className="text-xs">
-                                      {child.name}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            <Button size="sm" variant="ghost">
-                              Select
-                            </Button>
+                        <SelectItem key={parent.id} value={parent.id}>
+                          <div>
+                            <div className="font-medium">{parent.name}</div>
+                            <div className="text-sm text-gray-500">{parent.email}</div>
                           </div>
-                        </div>
+                        </SelectItem>
                       ))}
-                    </div>
-                  )}
-
-                  {parentSearch && parentLoading && (
-                    <div className="text-center py-4 text-gray-500">
-                      <div className="animate-pulse">Searching...</div>
-                    </div>
-                  )}
-
-                  {parentSearch && parents.length === 0 && !parentLoading && (
-                    <div className="text-center py-4 text-gray-500">
-                      No parents found matching "{parentSearch}". Try a different search term or create a new parent.
-                    </div>
-                  )}
+                    </SelectContent>
+                  </Select>
+                  <Dialog open={isParentDialogOpen} onOpenChange={setIsParentDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button type="button" variant="outline" size="icon">
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center space-x-2">
+                          <UserPlus className="w-5 h-5" />
+                          <span>Create New Parent</span>
+                        </DialogTitle>
+                        <DialogDescription>
+                          Add a new parent/guardian to the system. They will be able to access the parent portal.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleCreateParent} className="space-y-4">
+                        <div>
+                          <Label htmlFor="parentName">Full Name *</Label>
+                          <Input
+                            id="parentName"
+                            value={parentFormData.name}
+                            onChange={(e) => handleParentInputChange("name", e.target.value)}
+                            placeholder="Enter parent's full name"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="parentEmail">Email Address *</Label>
+                          <Input
+                            id="parentEmail"
+                            type="email"
+                            value={parentFormData.email}
+                            onChange={(e) => handleParentInputChange("email", e.target.value)}
+                            placeholder="parent@example.com"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="parentPassword">Password *</Label>
+                          <Input
+                            id="parentPassword"
+                            type="password"
+                            value={parentFormData.password}
+                            onChange={(e) => handleParentInputChange("password", e.target.value)}
+                            placeholder="Enter password"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="parentPhone">Phone Number</Label>
+                          <Input
+                            id="parentPhone"
+                            value={parentFormData.phone}
+                            onChange={(e) => handleParentInputChange("phone", e.target.value)}
+                            placeholder="+256 700 000 000"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="parentAddress">Address</Label>
+                          <Textarea
+                            id="parentAddress"
+                            value={parentFormData.address}
+                            onChange={(e) => handleParentInputChange("address", e.target.value)}
+                            placeholder="Enter parent's address"
+                            rows={3}
+                          />
+                        </div>
+                        <div className="flex justify-end space-x-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsParentDialogOpen(false)}
+                            disabled={isCreatingParent}
+                          >
+                            Cancel
+                          </Button>
+                          <Button type="submit" disabled={isCreatingParent}>
+                            {isCreatingParent ? "Creating..." : "Create Parent"}
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="parentName">Parent Name *</Label>
-                    <Input
-                      id="parentName"
-                      placeholder="Enter parent's full name"
-                      value={formData.parentName}
-                      onChange={(e) => setFormData({ ...formData, parentName: e.target.value })}
-                      required={showNewParent}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="parentEmail">Parent Email *</Label>
-                    <Input
-                      id="parentEmail"
-                      type="email"
-                      placeholder="Enter parent's email"
-                      value={formData.parentEmail}
-                      onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
-                      required={showNewParent}
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label htmlFor="parentPassword">Parent Password *</Label>
-                    <Input
-                      id="parentPassword"
-                      type="password"
-                      placeholder="Create password for parent login"
-                      value={formData.parentPassword}
-                      onChange={(e) => setFormData({ ...formData, parentPassword: e.target.value })}
-                      required={showNewParent}
-                      minLength={6}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Password must be at least 6 characters long</p>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
+          </CardContent>
+        </Card>
 
-            <Alert className="border-blue-200 bg-blue-50">
-              <AlertDescription className="text-blue-800">
-                <strong>Note:</strong>{" "}
-                {showNewParent
-                  ? "A new parent account will be created with the provided credentials."
-                  : "The student will be linked to the selected existing parent account."}
-              </AlertDescription>
-            </Alert>
-
-            <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-              <Button type="button" variant="outline" onClick={() => router.back()}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isSubmitting || loading || (!showNewParent && !formData.parentId)}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {isSubmitting ? "Registering..." : "Register Student"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+        {/* Submit Button */}
+        <div className="flex justify-end space-x-4">
+          <Button type="button" variant="outline" onClick={() => router.back()}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={isLoading} className="bg-blue-600 hover:bg-blue-700">
+            {isLoading ? "Registering..." : "Register Student"}
+          </Button>
+        </div>
+      </form>
     </div>
   )
 }
