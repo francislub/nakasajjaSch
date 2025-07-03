@@ -35,6 +35,7 @@ import {
   Calendar,
   BookOpen,
   Filter,
+  GraduationCap,
 } from "lucide-react"
 
 interface Student {
@@ -59,6 +60,18 @@ interface Student {
     email: string
   }
   reportCards: ReportCard[]
+  marks: Mark[]
+}
+
+interface Mark {
+  id: string
+  value: number
+  examType: string
+  subject: {
+    id: string
+    name: string
+    code: string
+  }
 }
 
 interface ReportCard {
@@ -253,6 +266,24 @@ export default function AdminStudentReportsPage() {
         description: "Failed to download report card",
         variant: "destructive",
       })
+    }
+  }
+
+  const getMarksByExamType = (marks: Mark[]) => {
+    const examTypes = [...new Set(marks.map((m) => m.examType))]
+    const subjects = [...new Set(marks.map((m) => m.subject.name))]
+
+    return {
+      examTypes,
+      subjects,
+      marksBySubjectAndExam: subjects.map((subject) => ({
+        subject,
+        marks: examTypes.map((examType) => {
+          const mark = marks.find((m) => m.subject.name === subject && m.examType === examType)
+          return { examType, value: mark?.value || 0 }
+        }),
+        total: marks.filter((m) => m.subject.name === subject).reduce((sum, m) => sum + m.value, 0),
+      })),
     }
   }
 
@@ -595,57 +626,183 @@ export default function AdminStudentReportsPage() {
 
       {/* Approval Dialog */}
       <Dialog open={isApprovalDialogOpen} onOpenChange={setIsApprovalDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Review Report Card</DialogTitle>
-            <DialogDescription>Add your headteacher comment and approve this report card</DialogDescription>
+            <DialogDescription>
+              Review marks and add your headteacher comment to approve this report card
+            </DialogDescription>
           </DialogHeader>
-          {selectedReport && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+          {selectedReport && selectedStudent && (
+            <div className="space-y-6">
+              {/* Student Info */}
+              <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                <Avatar className="w-16 h-16">
+                  <AvatarImage src={selectedStudent.photo || "/placeholder.svg"} alt={selectedStudent.name} />
+                  <AvatarFallback className="text-lg">
+                    {selectedStudent.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <div>
-                  <Label className="text-sm font-medium text-gray-600">Discipline</Label>
-                  <Badge variant="outline" className="mt-1">
-                    {selectedReport.discipline}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-600">Cleanliness</Label>
-                  <Badge variant="outline" className="mt-1">
-                    {selectedReport.cleanliness}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-600">Class Work</Label>
-                  <Badge variant="outline" className="mt-1">
-                    {selectedReport.classWorkPresentation}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-600">School Adherence</Label>
-                  <Badge variant="outline" className="mt-1">
-                    {selectedReport.adherenceToSchool}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-600">Co-curricular</Label>
-                  <Badge variant="outline" className="mt-1">
-                    {selectedReport.coCurricularActivities}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-600">Consideration</Label>
-                  <Badge variant="outline" className="mt-1">
-                    {selectedReport.considerationToOthers}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-600">Speaking English</Label>
-                  <Badge variant="outline" className="mt-1">
-                    {selectedReport.speakingEnglish}
-                  </Badge>
+                  <h3 className="text-xl font-semibold">{selectedStudent.name}</h3>
+                  <p className="text-gray-600">{selectedStudent.class.name}</p>
+                  <p className="text-sm text-gray-500">
+                    {selectedStudent.academicYear.year} - {selectedStudent.term.name}
+                  </p>
                 </div>
               </div>
+
+              {/* Marks Table */}
+              {selectedStudent.marks && selectedStudent.marks.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                      <GraduationCap className="w-5 h-5" />
+                      <span>Academic Performance</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const { examTypes, subjects, marksBySubjectAndExam } = getMarksByExamType(selectedStudent.marks)
+                      return (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="font-bold">Subject</TableHead>
+                                {examTypes.map((examType) => (
+                                  <TableHead key={examType} className="text-center font-bold">
+                                    {examType}
+                                  </TableHead>
+                                ))}
+                                <TableHead className="text-center font-bold">Total</TableHead>
+                                <TableHead className="text-center font-bold">Grade</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {marksBySubjectAndExam.map((subjectData) => (
+                                <TableRow key={subjectData.subject}>
+                                  <TableCell className="font-medium">{subjectData.subject}</TableCell>
+                                  {subjectData.marks.map((mark) => (
+                                    <TableCell key={mark.examType} className="text-center">
+                                      {mark.value > 0 ? mark.value : "-"}
+                                    </TableCell>
+                                  ))}
+                                  <TableCell className="text-center font-bold">{subjectData.total}</TableCell>
+                                  <TableCell className="text-center">
+                                    <Badge
+                                      variant={
+                                        subjectData.total >= 70
+                                          ? "default"
+                                          : subjectData.total >= 50
+                                            ? "secondary"
+                                            : "destructive"
+                                      }
+                                    >
+                                      {subjectData.total >= 80
+                                        ? "A"
+                                        : subjectData.total >= 70
+                                          ? "B"
+                                          : subjectData.total >= 60
+                                            ? "C"
+                                            : subjectData.total >= 50
+                                              ? "D"
+                                              : subjectData.total >= 40
+                                                ? "E"
+                                                : "F"}
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                              <TableRow className="bg-gray-50">
+                                <TableCell className="font-bold">TOTAL MARKS</TableCell>
+                                {examTypes.map((examType) => (
+                                  <TableCell key={examType} className="text-center font-bold">
+                                    {selectedStudent.marks
+                                      .filter((m) => m.examType === examType)
+                                      .reduce((sum, m) => sum + m.value, 0)}
+                                  </TableCell>
+                                ))}
+                                <TableCell className="text-center font-bold text-lg">
+                                  {selectedStudent.marks.reduce((sum, m) => sum + m.value, 0)}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="outline" className="font-bold">
+                                    {(() => {
+                                      const total = selectedStudent.marks.reduce((sum, m) => sum + m.value, 0)
+                                      const subjects = [...new Set(selectedStudent.marks.map((m) => m.subject.name))]
+                                        .length
+                                      const average = subjects > 0 ? total / subjects : 0
+                                      return average >= 70 ? "I" : average >= 60 ? "II" : average >= 50 ? "III" : "IV"
+                                    })()}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Personal Assessment */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Personal Assessment</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">Discipline</Label>
+                      <Badge variant="outline" className="mt-1">
+                        {selectedReport.discipline}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">Cleanliness</Label>
+                      <Badge variant="outline" className="mt-1">
+                        {selectedReport.cleanliness}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">Class Work</Label>
+                      <Badge variant="outline" className="mt-1">
+                        {selectedReport.classWorkPresentation}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">School Adherence</Label>
+                      <Badge variant="outline" className="mt-1">
+                        {selectedReport.adherenceToSchool}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">Co-curricular</Label>
+                      <Badge variant="outline" className="mt-1">
+                        {selectedReport.coCurricularActivities}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">Consideration</Label>
+                      <Badge variant="outline" className="mt-1">
+                        {selectedReport.considerationToOthers}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">Speaking English</Label>
+                      <Badge variant="outline" className="mt-1">
+                        {selectedReport.speakingEnglish}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               {selectedReport.classTeacherComment && (
                 <div>
@@ -696,7 +853,7 @@ export default function AdminStudentReportsPage() {
 
       {/* View Student Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Student Report Details</DialogTitle>
             <DialogDescription>View detailed report information for {selectedStudent?.name}</DialogDescription>
@@ -727,6 +884,77 @@ export default function AdminStudentReportsPage() {
                   )}
                 </div>
               </div>
+
+              {/* Marks Display */}
+              {selectedStudent.marks && selectedStudent.marks.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                      <GraduationCap className="w-5 h-5" />
+                      <span>Academic Performance</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const { examTypes, subjects, marksBySubjectAndExam } = getMarksByExamType(selectedStudent.marks)
+                      return (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="font-bold">Subject</TableHead>
+                                {examTypes.map((examType) => (
+                                  <TableHead key={examType} className="text-center font-bold">
+                                    {examType}
+                                  </TableHead>
+                                ))}
+                                <TableHead className="text-center font-bold">Total</TableHead>
+                                <TableHead className="text-center font-bold">Grade</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {marksBySubjectAndExam.map((subjectData) => (
+                                <TableRow key={subjectData.subject}>
+                                  <TableCell className="font-medium">{subjectData.subject}</TableCell>
+                                  {subjectData.marks.map((mark) => (
+                                    <TableCell key={mark.examType} className="text-center">
+                                      {mark.value > 0 ? mark.value : "-"}
+                                    </TableCell>
+                                  ))}
+                                  <TableCell className="text-center font-bold">{subjectData.total}</TableCell>
+                                  <TableCell className="text-center">
+                                    <Badge
+                                      variant={
+                                        subjectData.total >= 70
+                                          ? "default"
+                                          : subjectData.total >= 50
+                                            ? "secondary"
+                                            : "destructive"
+                                      }
+                                    >
+                                      {subjectData.total >= 80
+                                        ? "A"
+                                        : subjectData.total >= 70
+                                          ? "B"
+                                          : subjectData.total >= 60
+                                            ? "C"
+                                            : subjectData.total >= 50
+                                              ? "D"
+                                              : subjectData.total >= 40
+                                                ? "E"
+                                                : "F"}
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
 
               {selectedStudent.reportCards.map((report, index) => (
                 <Card key={report.id} className="border-2">
