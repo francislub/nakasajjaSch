@@ -26,9 +26,14 @@ const menuItems = [
   },
   {
     title: "Students",
-    url: "/secretary/students",
+    url: "/admin/students",
     icon: Users,
   },
+  // {
+  //   title: "Students",
+  //   url: "/secretary/students",
+  //   icon: Users,
+  // },
   // {
   //   title: "Enter Marks",
   //   url: "/secretary/marks",
