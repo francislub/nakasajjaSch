@@ -123,7 +123,7 @@ interface ReportCard {
   }
   academicYear: {
     id: string
-    name: string
+    year: string
   }
   gradingSystem?: Array<{
     id: string
@@ -234,6 +234,7 @@ export default function AdminReportCardsPage() {
       comment?: string
     }>
   >([])
+
   const { toast } = useToast()
 
   useEffect(() => {
@@ -471,7 +472,6 @@ export default function AdminReportCardsPage() {
       const response = await fetch(`/api/report-cards/${reportId}/approve`, {
         method: "POST",
       })
-
       if (response.ok) {
         toast({
           title: "Success",
@@ -716,6 +716,13 @@ export default function AdminReportCardsPage() {
     }
   }
 
+  // Check if parent access is enabled for a report card
+  const isParentAccessEnabled = (reportCard: ReportCard) => {
+    const comment = reportCard.headteacherComment || ""
+    const accessMarkerRegex = /\[PARENT_ACCESS_ENABLED_\d+\]/
+    return accessMarkerRegex.test(comment)
+  }
+
   const gradeDistributionData = stats
     ? {
         labels: ["A - Very Good", "B - Good", "C - Fair", "D - Needs Improvement"],
@@ -762,7 +769,6 @@ export default function AdminReportCardsPage() {
             <p className="text-muted-foreground">View, approve, and download student report cards</p>
           </div>
         </div>
-
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => (
             <Card key={i}>
@@ -839,7 +845,6 @@ export default function AdminReportCardsPage() {
               <div className="text-2xl font-bold">{stats.totalReports}</div>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Approved</CardTitle>
@@ -852,7 +857,6 @@ export default function AdminReportCardsPage() {
               </p>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
@@ -865,7 +869,6 @@ export default function AdminReportCardsPage() {
               </p>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Approval Rate</CardTitle>
@@ -908,7 +911,6 @@ export default function AdminReportCardsPage() {
               )}
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>Reports by Class</CardTitle>
@@ -954,7 +956,6 @@ export default function AdminReportCardsPage() {
                 className="pl-10"
               />
             </div>
-
             <Select value={selectedAcademicYear} onValueChange={setSelectedAcademicYear}>
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Select Academic Year" />
@@ -967,7 +968,6 @@ export default function AdminReportCardsPage() {
                 ))}
               </SelectContent>
             </Select>
-
             <Select value={selectedTerm} onValueChange={setSelectedTerm}>
               <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="All Terms" />
@@ -981,7 +981,6 @@ export default function AdminReportCardsPage() {
                 ))}
               </SelectContent>
             </Select>
-
             <Select value={selectedClass} onValueChange={setSelectedClass}>
               <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="All Classes" />
@@ -995,7 +994,6 @@ export default function AdminReportCardsPage() {
                 ))}
               </SelectContent>
             </Select>
-
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="All Status" />
@@ -1079,7 +1077,7 @@ export default function AdminReportCardsPage() {
                     </TableCell>
                     <TableCell>{report.student.class.name}</TableCell>
                     <TableCell>{report.term.name}</TableCell>
-                    <TableCell>{report.academicYear.name}</TableCell>
+                    <TableCell>{report.academicYear.year}</TableCell>
                     <TableCell>
                       {report.student.parent ? (
                         <div>
@@ -1097,8 +1095,8 @@ export default function AdminReportCardsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={report.parentAccessEnabled ? "default" : "outline"}>
-                        {report.parentAccessEnabled ? "Enabled" : "Disabled"}
+                      <Badge variant={isParentAccessEnabled(report) ? "default" : "outline"}>
+                        {isParentAccessEnabled(report) ? "Enabled" : "Disabled"}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -1132,7 +1130,7 @@ export default function AdminReportCardsPage() {
                             <Printer className="h-4 w-4" />
                           )}
                         </Button>
-                        {report.isApproved && report.student.parent && !report.parentAccessEnabled && (
+                        {report.isApproved && report.student.parent && !isParentAccessEnabled(report) && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button
@@ -1156,7 +1154,6 @@ export default function AdminReportCardsPage() {
                                     You are about to enable parent access for <strong>{report.student.name}'s</strong>{" "}
                                     report card.
                                   </div>
-
                                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                                     <h4 className="font-semibold text-yellow-800 mb-2">⚠️ Please Confirm:</h4>
                                     <ul className="text-sm text-yellow-700 space-y-1">
@@ -1169,17 +1166,14 @@ export default function AdminReportCardsPage() {
                                       <li>• Is the report card ready for parent review?</li>
                                     </ul>
                                   </div>
-
                                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                     <h4 className="font-semibold text-blue-800 mb-2">📋 What happens next:</h4>
                                     <ul className="text-sm text-blue-700 space-y-1">
                                       <li>• Parent will be able to view the report card online</li>
                                       <li>• Parent can download and print the report card</li>
                                       <li>• Access will be available immediately after confirmation</li>
-                                      {/* <li>• Parent will be notified via email (if configured)</li> */}
                                     </ul>
                                   </div>
-
                                   <div className="text-sm text-gray-600">
                                     <strong>Parent:</strong> {report.student.parent?.name}
                                     <br />
@@ -1212,7 +1206,7 @@ export default function AdminReportCardsPage() {
                             </AlertDialogContent>
                           </AlertDialog>
                         )}
-                        {report.parentAccessEnabled && (
+                        {isParentAccessEnabled(report) && (
                           <Badge variant="outline" className="text-green-600 border-green-600">
                             <UserCheck className="mr-1 h-3 w-3" />
                             Sent
@@ -1250,7 +1244,6 @@ export default function AdminReportCardsPage() {
                   View Full Report Card
                 </Button>
               </div>
-
               <div className="grid gap-4">
                 <div>
                   <h4 className="font-semibold mb-2">Student Information</h4>
@@ -1265,11 +1258,10 @@ export default function AdminReportCardsPage() {
                       Term: <strong>{selectedReportCard.term.name}</strong>
                     </div>
                     <div>
-                      Academic Year: <strong>{selectedReportCard.academicYear.name}</strong>
+                      Academic Year: <strong>{selectedReportCard.academicYear.year}</strong>
                     </div>
                   </div>
                 </div>
-
                 <div>
                   <h4 className="font-semibold mb-2">Personal Assessment</h4>
                   <div className="grid grid-cols-2 gap-2 text-sm">
@@ -1287,7 +1279,6 @@ export default function AdminReportCardsPage() {
                     </div>
                   </div>
                 </div>
-
                 <div>
                   <h4 className="font-semibold mb-2">Academic Performance</h4>
                   <div className="text-sm">
@@ -1297,7 +1288,6 @@ export default function AdminReportCardsPage() {
                     </p>
                   </div>
                 </div>
-
                 <div>
                   <h4 className="font-semibold mb-2">Comments</h4>
                   <div className="text-sm space-y-2">
@@ -1310,7 +1300,6 @@ export default function AdminReportCardsPage() {
                   </div>
                 </div>
               </div>
-
               <div className="flex justify-end gap-2">
                 <Button
                   onClick={() => handleDownloadReport(selectedReportCard.student.id, selectedReportCard.id, false)}
@@ -1366,13 +1355,11 @@ export default function AdminReportCardsPage() {
                   </CardContent>
                 </Card>
               </div>
-
               {classReportCards.classInfo.classTeacher && (
                 <div className="text-sm text-muted-foreground">
                   Class Teacher: <strong>{classReportCards.classInfo.classTeacher.name}</strong>
                 </div>
               )}
-
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1428,7 +1415,6 @@ export default function AdminReportCardsPage() {
                   ))}
                 </TableBody>
               </Table>
-
               <div className="flex justify-end gap-2">
                 <Button onClick={() => handleDownloadClassReports(selectedClass, false)} disabled={isDownloading}>
                   {isDownloading ? (
@@ -1481,9 +1467,7 @@ export default function AdminReportCardsPage() {
                   )}
                 </div>
               </div>
-
               <div className="text-lg font-semibold">Total Report Cards: {bulkPreviewData.totalCount}</div>
-
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1528,13 +1512,11 @@ export default function AdminReportCardsPage() {
                   ))}
                 </TableBody>
               </Table>
-
               {bulkPreviewData.totalCount > 10 && (
                 <div className="text-center text-muted-foreground">
                   ... and {bulkPreviewData.totalCount - 10} more report cards
                 </div>
               )}
-
               <div className="flex justify-end gap-2">
                 <Button onClick={() => handleBulkDownload(false)} disabled={isDownloading}>
                   {isDownloading ? (
