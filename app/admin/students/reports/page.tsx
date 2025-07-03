@@ -193,6 +193,11 @@ interface StudentReportDetails {
   assessmentTotals: { [assessmentType: string]: number }
   grandTotal: number
   gradingSystem: any[]
+  divisions: {
+    BOT: DivisionResult | null
+    MID: DivisionResult | null
+    END: DivisionResult | null
+  }
 }
 
 // Behavioral Assessment Grades
@@ -1107,7 +1112,7 @@ export default function AdminStudentReportsPage() {
                 </div>
 
                 {/* Academic Performance - Divisions */}
-                {studentReportDetails && (
+                {studentReportDetails && studentReportDetails.divisions && (
                   <Card className="border-2 border-blue-200">
                     <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
                       <CardTitle className="flex items-center space-x-2 text-xl">
@@ -1121,20 +1126,10 @@ export default function AdminStudentReportsPage() {
                     <CardContent className="p-6">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {["BOT", "MID", "END"].map((examType) => {
-                          // Mock division data since we don't have it in the current structure
-                          const mockDivision = {
-                            label: studentReportDetails.division,
-                            aggregate: studentReportDetails.overallAggregate,
-                            subjects: studentReportDetails.subjects
-                              .filter((s) => s.category === "GENERAL")
-                              .slice(0, 4)
-                              .map((s) => ({
-                                subjectName: s.name,
-                                grade: s.grade,
-                                gradeValue: s.grade === "D1" ? 1 : s.grade === "D2" ? 2 : 3,
-                                score: s.total,
-                              })),
-                          }
+                          // Use actual division data from API response
+                          const division =
+                            studentReportDetails.divisions?.[examType as keyof typeof studentReportDetails.divisions] ||
+                            null
 
                           return (
                             <Card key={examType} className="border border-gray-200 hover:shadow-lg transition-shadow">
@@ -1150,26 +1145,26 @@ export default function AdminStudentReportsPage() {
                                 </CardDescription>
                               </CardHeader>
                               <CardContent>
-                                {mockDivision ? (
+                                {division ? (
                                   <div className="space-y-4">
                                     <div
-                                      className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-bold ${getDivisionColor(mockDivision.label)}`}
+                                      className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-bold ${division.color || getDivisionColor(division.label)}`}
                                     >
                                       <Award className="w-4 h-4 mr-2" />
-                                      {mockDivision.label}
+                                      {division.label}
                                     </div>
-                                    {mockDivision && (
-                                      <div className="space-y-3">
-                                        <div className="flex items-center justify-between text-sm">
-                                          <span className="font-medium text-gray-600">Aggregate Score</span>
-                                          <span className="font-bold text-lg">{mockDivision.aggregate}</span>
-                                        </div>
-                                        <div>
-                                          <p className="text-sm font-medium text-gray-600 mb-2">
-                                            Top 4 General Subjects:
-                                          </p>
-                                          <div className="space-y-2">
-                                            {mockDivision.subjects.map((subject, idx) => (
+                                    <div className="space-y-3">
+                                      <div className="flex items-center justify-between text-sm">
+                                        <span className="font-medium text-gray-600">Aggregate Score</span>
+                                        <span className="font-bold text-lg">{division.aggregate}</span>
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-medium text-gray-600 mb-2">
+                                          Top 4 General Subjects:
+                                        </p>
+                                        <div className="space-y-2">
+                                          {division.subjects &&
+                                            division.subjects.map((subject, idx) => (
                                               <div
                                                 key={idx}
                                                 className="flex items-center justify-between p-2 bg-gray-50 rounded"
@@ -1189,10 +1184,9 @@ export default function AdminStudentReportsPage() {
                                                 </div>
                                               </div>
                                             ))}
-                                          </div>
                                         </div>
                                       </div>
-                                    )}
+                                    </div>
                                   </div>
                                 ) : (
                                   <div className="text-center py-4">
