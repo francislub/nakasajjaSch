@@ -15,11 +15,27 @@ export async function GET(request: Request) {
     const classId = searchParams.get("classId")
     const termId = searchParams.get("termId")
     const academicYearId = searchParams.get("academicYearId")
+    const teacherId = searchParams.get("teacherId")
+    const subjectId = searchParams.get("subjectId")
 
+    // Build where clause based on filters
     const whereClause: any = {}
-    if (classId) whereClause.classId = classId
-    if (termId) whereClause.termId = termId
-    if (academicYearId) whereClause.academicYearId = academicYearId
+    if (classId && classId !== "none") whereClause.classId = classId
+    if (termId && termId !== "none") whereClause.termId = termId
+    if (academicYearId && academicYearId !== "none") whereClause.academicYearId = academicYearId
+    if (teacherId && teacherId !== "none") whereClause.teacherId = teacherId
+    if (subjectId && subjectId !== "none") whereClause.subjectId = subjectId
+
+    // If no academic year specified, default to active academic year
+    if (!academicYearId || academicYearId === "active") {
+      const activeYear = await prisma.academicYear.findFirst({
+        where: { isActive: true },
+      })
+
+      if (activeYear) {
+        whereClause.academicYearId = activeYear.id
+      }
+    }
 
     const subjectTeachers = await prisma.subjectTeacher.findMany({
       where: whereClause,
@@ -55,6 +71,7 @@ export async function GET(request: Request) {
           select: {
             id: true,
             year: true,
+            isActive: true,
           },
         },
       },
@@ -79,25 +96,64 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { teacherId, subjectId, classId, termId, academicYearId } = body
 
-    if (!teacherId || !subjectId || !classId || !termId || !academicYearId) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!teacherId || teacherId === "none") {
+      return NextResponse.json({ error: "Teacher is required" }, { status: 400 })
+    }
+
+    if (!subjectId || subjectId === "none") {
+      return NextResponse.json({ error: "Subject is required" }, { status: 400 })
+    }
+
+    if (!classId || classId === "none") {
+      return NextResponse.json({ error: "Class is required" }, { status: 400 })
+    }
+
+    if (!termId || termId === "none") {
+      return NextResponse.json({ error: "Term is required" }, { status: 400 })
+    }
+
+    if (!academicYearId || academicYearId === "none") {
+      return NextResponse.json({ error: "Academic year is required" }, { status: 400 })
+    }
+
+    // Validate that all referenced entities exist
+    const [teacher, subject, classEntity, term, academicYear] = await Promise.all([
+      prisma.teacher.findUnique({ where: { id: teacherId } }),
+      prisma.subject.findUnique({ where: { id: subjectId } }),
+      prisma.class.findUnique({ where: { id: classId } }),
+      prisma.term.findUnique({ where: { id: termId } }),
+      prisma.academicYear.findUnique({ where: { id: academicYearId } }),
+    ])
+
+    if (!teacher) {
+      return NextResponse.json({ error: "Teacher not found" }, { status: 404 })
+    }
+    if (!subject) {
+      return NextResponse.json({ error: "Subject not found" }, { status: 404 })
+    }
+    if (!classEntity) {
+      return NextResponse.json({ error: "Class not found" }, { status: 404 })
+    }
+    if (!term) {
+      return NextResponse.json({ error: "Term not found" }, { status: 404 })
+    }
+    if (!academicYear) {
+      return NextResponse.json({ error: "Academic year not found" }, { status: 404 })
     }
 
     // Check if assignment already exists
-    const existingAssignment = await prisma.subjectTeacher.findUnique({
+    const existingAssignment = await prisma.subjectTeacher.findFirst({
       where: {
-        subjectId_classId_termId_academicYearId: {
-          subjectId,
-          classId,
-          termId,
-          academicYearId,
-        },
+        subjectId,
+        classId,
+        termId,
+        academicYearId,
       },
     })
 
     if (existingAssignment) {
       return NextResponse.json(
-        { error: "A teacher is already assigned to this subject for the specified term and academic year" },
+        { error: "A teacher is already assigned to this subject for the specified class, term and academic year" },
         { status: 400 },
       )
     }
@@ -142,6 +198,7 @@ export async function POST(request: Request) {
           select: {
             id: true,
             year: true,
+            isActive: true,
           },
         },
       },
