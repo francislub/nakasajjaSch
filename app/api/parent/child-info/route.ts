@@ -21,12 +21,6 @@ export async function GET(request: NextRequest) {
           include: {
             class: {
               include: {
-                classTeacher: {
-                  select: {
-                    name: true,
-                    email: true,
-                  },
-                },
                 subjects: {
                   select: {
                     id: true,
@@ -34,13 +28,21 @@ export async function GET(request: NextRequest) {
                     code: true,
                   },
                 },
-                academicYear: {
-                  select: {
-                    id: true,
-                    year: true,
-                    isActive: true,
-                  },
-                },
+              },
+            },
+            academicYear: {
+              select: {
+                id: true,
+                year: true,
+                isActive: true,
+              },
+            },
+            term: {
+              select: {
+                id: true,
+                name: true,
+                startDate: true,
+                endDate: true,
               },
             },
             attendance: {
@@ -62,6 +64,30 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Parent not found" }, { status: 404 })
     }
 
+    // Get class teachers separately for each class
+    const classIds = parent.children.map((child) => child.class?.id).filter(Boolean)
+    const classTeachers = await prisma.class.findMany({
+      where: {
+        id: { in: classIds },
+      },
+      select: {
+        id: true,
+        classTeachers: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    })
+
+    // Create a map of class teachers for easy lookup
+    const classTeacherMap = new Map()
+    classTeachers.forEach((cls) => {
+      classTeacherMap.set(cls.id, cls.classTeachers[0] || null)
+    })
+
     // Transform the data to match the expected format
     const transformedChildren = parent.children.map((child) => ({
       id: child.id,
@@ -77,11 +103,11 @@ export async function GET(request: NextRequest) {
         id: child.class?.id || "",
         name: child.class?.name || "Not Assigned",
         teacher: {
-          name: child.class?.classTeacher?.name || "Not Assigned",
-          email: child.class?.classTeacher?.email || "",
+          name: classTeacherMap.get(child.class?.id)?.name || "Not Assigned",
+          email: classTeacherMap.get(child.class?.id)?.email || "",
         },
         subjects: child.class?.subjects || [],
-        academicYear: child.class?.academicYear?.year || "Current Year",
+        academicYear: child.academicYear?.year || "Current Year",
       },
       attendance: child.attendance.map((record) => ({
         id: record.id,
