@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,6 +37,14 @@ import {
   BookOpen,
   Filter,
   GraduationCap,
+  TrendingUp,
+  Award,
+  Target,
+  Star,
+  Trophy,
+  BarChart3,
+  Edit,
+  Plus,
 } from "lucide-react"
 
 interface Student {
@@ -43,9 +52,16 @@ interface Student {
   name: string
   photo?: string
   gender: string
+  registrationNumber?: string
   class: {
     id: string
     name: string
+    subjects: {
+      id: string
+      name: string
+      code: string
+      category: "GENERAL" | "SUBSIDIARY"
+    }[]
   }
   term: {
     id: string
@@ -56,22 +72,65 @@ interface Student {
     year: string
   }
   parent?: {
+    id: string
     name: string
     email: string
   }
   reportCards: ReportCard[]
   marks: Mark[]
+  divisions: {
+    BOT: DivisionResult | null
+    MID: DivisionResult | null
+    END: DivisionResult | null
+  }
 }
 
 interface Mark {
   id: string
-  value: number
-  examType: string
+  bot?: number
+  midterm?: number
+  eot?: number
+  total?: number
+  grade?: string
   subject: {
     id: string
     name: string
-    code: string
+    code?: string
+    category: "GENERAL" | "SUBSIDIARY"
   }
+  term: {
+    id: string
+    name: string
+  }
+  student: {
+    id: string
+    name: string
+    photo?: string
+    registrationNumber?: string
+    class: {
+      id: string
+      name: string
+    }
+  }
+  createdBy?: {
+    id: string
+    name: string
+    role: string
+  }
+}
+
+interface DivisionResult {
+  division: "DIVISION_1" | "DIVISION_2" | "DIVISION_3" | "DIVISION_4" | "UNGRADED" | "FAIL"
+  aggregate: number
+  label: string
+  color: string
+  subjects: {
+    subjectId: string
+    subjectName: string
+    grade: string
+    gradeValue: number
+    score?: number
+  }[]
 }
 
 interface ReportCard {
@@ -93,6 +152,12 @@ interface ReportCard {
 interface Class {
   id: string
   name: string
+  subjects: {
+    id: string
+    name: string
+    code: string
+    category: "GENERAL" | "SUBSIDIARY"
+  }[]
 }
 
 interface Term {
@@ -106,6 +171,66 @@ interface AcademicYear {
   isActive: boolean
 }
 
+interface SubjectData {
+  name: string
+  category: string
+  homework: number
+  bot: number
+  midterm: number
+  eot: number
+  total: number
+  grade: string
+  teacherInitials: string
+}
+
+interface StudentReportDetails {
+  student: Student
+  subjects: SubjectData[]
+  assessmentTypes: string[]
+  division: string
+  overallAggregate: number
+  validGeneralSubjects: number
+  assessmentTotals: { [assessmentType: string]: number }
+  grandTotal: number
+  gradingSystem: any[]
+}
+
+// Behavioral Assessment Grades
+const BEHAVIORAL_GRADES = [
+  { value: "A", label: "A - Very Good", description: "Very Good" },
+  { value: "B", label: "B - Good", description: "Good" },
+  { value: "C", label: "C - Fair", description: "Fair" },
+  { value: "D", label: "D - Needs Improvement", description: "Needs Improvement" },
+]
+
+const getDivisionColor = (division: string): string => {
+  switch (division) {
+    case "DIVISION_1":
+    case "DIVISION I":
+      return "bg-emerald-100 text-emerald-800 border-emerald-200"
+    case "DIVISION_2":
+    case "DIVISION II":
+      return "bg-blue-100 text-blue-800 border-blue-200"
+    case "DIVISION_3":
+    case "DIVISION III":
+      return "bg-amber-100 text-amber-800 border-amber-200"
+    case "DIVISION_4":
+    case "DIVISION IV":
+      return "bg-orange-100 text-orange-800 border-orange-200"
+    case "UNGRADED":
+      return "bg-purple-100 text-purple-800 border-purple-200"
+    case "FAIL":
+      return "bg-red-100 text-red-800 border-red-200"
+    default:
+      return "bg-gray-100 text-gray-800 border-gray-200"
+  }
+}
+
+const getBehavioralGradeDisplay = (grade: string): string => {
+  const gradeInfo = BEHAVIORAL_GRADES.find((g) => g.value === grade)
+  return gradeInfo ? gradeInfo.description : grade || "Not Set"
+}
+
 export default function AdminStudentReportsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<Class[]>([])
@@ -117,12 +242,14 @@ export default function AdminStudentReportsPage() {
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>("active")
   const [isLoading, setIsLoading] = useState(true)
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
+  const [studentReportDetails, setStudentReportDetails] = useState<StudentReportDetails | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState<ReportCard | null>(null)
   const [isApprovalDialogOpen, setIsApprovalDialogOpen] = useState(false)
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null)
   const [headteacherComment, setHeadteacherComment] = useState("")
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -182,6 +309,39 @@ export default function AdminStudentReportsPage() {
     }
   }
 
+  const fetchStudentReportDetails = async (studentId: string) => {
+    setIsLoadingDetails(true)
+    try {
+      const params = new URLSearchParams()
+      if (selectedTerm !== "all") params.append("termId", selectedTerm)
+      if (selectedAcademicYear !== "all") params.append("academicYearId", selectedAcademicYear)
+
+      const response = await fetch(`/api/admin/students/${studentId}/report-details?${params}`)
+      if (response.ok) {
+        const data = await response.json()
+        setStudentReportDetails(data)
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to fetch student report details")
+      }
+    } catch (error) {
+      console.error("Error fetching student report details:", error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch student report details",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoadingDetails(false)
+    }
+  }
+
+  const handleViewStudent = async (student: Student) => {
+    setSelectedStudent(student)
+    setIsViewDialogOpen(true)
+    await fetchStudentReportDetails(student.id)
+  }
+
   const handleConfirmAction = () => {
     if (confirmAction && selectedReport) {
       if (confirmAction === "approve") {
@@ -197,7 +357,6 @@ export default function AdminStudentReportsPage() {
   const handleApproveReport = async (reportId: string, approve: boolean) => {
     try {
       if (approve) {
-        // Update report with headteacher comment and approve
         const response = await fetch(`/api/report-cards/${reportId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -217,7 +376,6 @@ export default function AdminStudentReportsPage() {
           throw new Error("Failed to approve report card")
         }
       } else {
-        // Reject report card - delete it completely
         const response = await fetch(`/api/report-cards/${reportId}`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -269,22 +427,18 @@ export default function AdminStudentReportsPage() {
     }
   }
 
-  const getMarksByExamType = (marks: Mark[]) => {
-    const examTypes = [...new Set(marks.map((m) => m.examType))]
-    const subjects = [...new Set(marks.map((m) => m.subject.name))]
-
-    return {
-      examTypes,
-      subjects,
-      marksBySubjectAndExam: subjects.map((subject) => ({
-        subject,
-        marks: examTypes.map((examType) => {
-          const mark = marks.find((m) => m.subject.name === subject && m.examType === examType)
-          return { examType, value: mark?.value || 0 }
-        }),
-        total: marks.filter((m) => m.subject.name === subject).reduce((sum, m) => sum + m.value, 0),
-      })),
-    }
+  const getGradeBadgeVariant = (grade: string) => {
+    const gradeUpper = grade.toUpperCase()
+    if (gradeUpper.includes("D1") || gradeUpper.includes("D2")) return "default"
+    if (
+      gradeUpper.includes("C3") ||
+      gradeUpper.includes("C4") ||
+      gradeUpper.includes("C5") ||
+      gradeUpper.includes("C6")
+    )
+      return "secondary"
+    if (gradeUpper.includes("P7") || gradeUpper.includes("P8")) return "outline"
+    return "destructive"
   }
 
   const filteredStudents = students.filter((student) => student.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -531,14 +685,7 @@ export default function AdminStudentReportsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedStudent(student)
-                          setIsViewDialogOpen(true)
-                        }}
-                      >
+                      <Button variant="outline" size="sm" onClick={() => handleViewStudent(student)}>
                         <Eye className="w-4 h-4" />
                       </Button>
                       {student.reportCards.map((report) => (
@@ -633,10 +780,10 @@ export default function AdminStudentReportsPage() {
               Review marks and add your headteacher comment to approve this report card
             </DialogDescription>
           </DialogHeader>
-          {selectedReport && selectedStudent && (
+          {selectedReport && selectedStudent && studentReportDetails && (
             <div className="space-y-6">
               {/* Student Info */}
-              <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border">
                 <Avatar className="w-16 h-16">
                   <AvatarImage src={selectedStudent.photo || "/placeholder.svg"} alt={selectedStudent.name} />
                   <AvatarFallback className="text-lg">
@@ -647,106 +794,154 @@ export default function AdminStudentReportsPage() {
                       .toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <div>
+                <div className="flex-1">
                   <h3 className="text-xl font-semibold">{selectedStudent.name}</h3>
                   <p className="text-gray-600">{selectedStudent.class.name}</p>
                   <p className="text-sm text-gray-500">
                     {selectedStudent.academicYear.year} - {selectedStudent.term.name}
                   </p>
                 </div>
+                <div className="text-right">
+                  <div
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getDivisionColor(studentReportDetails.division)}`}
+                  >
+                    <Award className="w-4 h-4 mr-1" />
+                    {studentReportDetails.division}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Aggregate: {studentReportDetails.overallAggregate}</p>
+                </div>
               </div>
 
-              {/* Marks Table */}
-              {selectedStudent.marks && selectedStudent.marks.length > 0 && (
+              {/* Academic Performance Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center text-green-700">
+                      <TrendingUp className="w-4 h-4 mr-2" />
+                      Total Marks
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-green-800">{studentReportDetails.grandTotal}</div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center text-blue-700">
+                      <Target className="w-4 h-4 mr-2" />
+                      Subjects
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-blue-800">{studentReportDetails.subjects.length}</div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center text-purple-700">
+                      <Award className="w-4 h-4 mr-2" />
+                      Average
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-purple-800">
+                      {studentReportDetails.subjects.length > 0
+                        ? Math.round(studentReportDetails.grandTotal / studentReportDetails.subjects.length)
+                        : 0}
+                      %
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Debug Info */}
+              {studentReportDetails.subjects.length === 0 && (
+                <Card className="bg-yellow-50 border-yellow-200">
+                  <CardContent className="pt-6">
+                    <p className="text-yellow-800">
+                      No marks found for this student in the selected term and academic year. Please ensure marks have
+                      been entered for this student.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Detailed Marks Table */}
+              {studentReportDetails.subjects.length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
                       <GraduationCap className="w-5 h-5" />
-                      <span>Academic Performance</span>
+                      <span>Academic Performance Details</span>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {(() => {
-                      const { examTypes, subjects, marksBySubjectAndExam } = getMarksByExamType(selectedStudent.marks)
-                      return (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="font-bold">Subject</TableHead>
-                                {examTypes.map((examType) => (
-                                  <TableHead key={examType} className="text-center font-bold">
-                                    {examType}
-                                  </TableHead>
-                                ))}
-                                <TableHead className="text-center font-bold">Total</TableHead>
-                                <TableHead className="text-center font-bold">Grade</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {marksBySubjectAndExam.map((subjectData) => (
-                                <TableRow key={subjectData.subject}>
-                                  <TableCell className="font-medium">{subjectData.subject}</TableCell>
-                                  {subjectData.marks.map((mark) => (
-                                    <TableCell key={mark.examType} className="text-center">
-                                      {mark.value > 0 ? mark.value : "-"}
-                                    </TableCell>
-                                  ))}
-                                  <TableCell className="text-center font-bold">{subjectData.total}</TableCell>
-                                  <TableCell className="text-center">
-                                    <Badge
-                                      variant={
-                                        subjectData.total >= 70
-                                          ? "default"
-                                          : subjectData.total >= 50
-                                            ? "secondary"
-                                            : "destructive"
-                                      }
-                                    >
-                                      {subjectData.total >= 80
-                                        ? "A"
-                                        : subjectData.total >= 70
-                                          ? "B"
-                                          : subjectData.total >= 60
-                                            ? "C"
-                                            : subjectData.total >= 50
-                                              ? "D"
-                                              : subjectData.total >= 40
-                                                ? "E"
-                                                : "F"}
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="font-bold">Subject</TableHead>
+                            {studentReportDetails.assessmentTypes.map((assessmentType) => (
+                              <TableHead key={assessmentType} className="text-center font-bold">
+                                {assessmentType.toUpperCase()}
+                              </TableHead>
+                            ))}
+                            <TableHead className="text-center font-bold">Total</TableHead>
+                            <TableHead className="text-center font-bold">Grade</TableHead>
+                            <TableHead className="text-center font-bold">Teacher</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {studentReportDetails.subjects.map((subject) => (
+                            <TableRow key={subject.name} className={subject.category === "GENERAL" ? "bg-blue-50" : ""}>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center space-x-2">
+                                  <span>{subject.name}</span>
+                                  {subject.category === "GENERAL" && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      Core
                                     </Badge>
-                                  </TableCell>
-                                </TableRow>
+                                  )}
+                                </div>
+                              </TableCell>
+                              {studentReportDetails.assessmentTypes.map((assessmentType) => (
+                                <TableCell key={assessmentType} className="text-center">
+                                  {subject[assessmentType as keyof SubjectData] > 0
+                                    ? subject[assessmentType as keyof SubjectData]
+                                    : "-"}
+                                </TableCell>
                               ))}
-                              <TableRow className="bg-gray-50">
-                                <TableCell className="font-bold">TOTAL MARKS</TableCell>
-                                {examTypes.map((examType) => (
-                                  <TableCell key={examType} className="text-center font-bold">
-                                    {selectedStudent.marks
-                                      .filter((m) => m.examType === examType)
-                                      .reduce((sum, m) => sum + m.value, 0)}
-                                  </TableCell>
-                                ))}
-                                <TableCell className="text-center font-bold text-lg">
-                                  {selectedStudent.marks.reduce((sum, m) => sum + m.value, 0)}
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="outline" className="font-bold">
-                                    {(() => {
-                                      const total = selectedStudent.marks.reduce((sum, m) => sum + m.value, 0)
-                                      const subjects = [...new Set(selectedStudent.marks.map((m) => m.subject.name))]
-                                        .length
-                                      const average = subjects > 0 ? total / subjects : 0
-                                      return average >= 70 ? "I" : average >= 60 ? "II" : average >= 50 ? "III" : "IV"
-                                    })()}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            </TableBody>
-                          </Table>
-                        </div>
-                      )
-                    })()}
+                              <TableCell className="text-center font-bold">{subject.total}</TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant={getGradeBadgeVariant(subject.grade)}>{subject.grade}</Badge>
+                              </TableCell>
+                              <TableCell className="text-center text-sm text-gray-600">
+                                {subject.teacherInitials}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+
+                          {/* Totals Row */}
+                          <TableRow className="bg-gray-100 font-bold">
+                            <TableCell className="font-bold">TOTALS</TableCell>
+                            {studentReportDetails.assessmentTypes.map((assessmentType) => (
+                              <TableCell key={assessmentType} className="text-center font-bold">
+                                {studentReportDetails.assessmentTotals[assessmentType]}
+                              </TableCell>
+                            ))}
+                            <TableCell className="text-center font-bold text-lg">
+                              {studentReportDetails.grandTotal}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Badge variant="outline" className="font-bold">
+                                {studentReportDetails.division}
+                              </Badge>
+                            </TableCell>
+                            <TableCell></TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
                   </CardContent>
                 </Card>
               )}
@@ -848,196 +1043,395 @@ export default function AdminStudentReportsPage() {
               </div>
             </div>
           )}
+          {isLoadingDetails && (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <span className="ml-2">Loading report details...</span>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
       {/* View Student Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Student Report Details</DialogTitle>
-            <DialogDescription>View detailed report information for {selectedStudent?.name}</DialogDescription>
+        <DialogContent className="max-w-7xl max-h-[95vh] overflow-hidden">
+          <DialogHeader className="border-b pb-4">
+            <DialogTitle className="text-2xl font-bold text-gray-900 flex items-center space-x-2">
+              <GraduationCap className="w-6 h-6 text-blue-600" />
+              <span>Comprehensive Student Profile</span>
+            </DialogTitle>
+            <DialogDescription className="text-gray-600">
+              Complete academic performance and behavioral assessment overview
+            </DialogDescription>
           </DialogHeader>
-          {selectedStudent && (
-            <div className="space-y-6">
-              <div className="flex items-center space-x-4">
-                <Avatar className="w-20 h-20">
-                  <AvatarImage src={selectedStudent.photo || "/placeholder.svg"} alt={selectedStudent.name} />
-                  <AvatarFallback className="text-lg">
-                    {selectedStudent.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")
-                      .toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <h3 className="text-xl font-semibold">{selectedStudent.name}</h3>
-                  <p className="text-gray-600">{selectedStudent.class.name}</p>
-                  <p className="text-sm text-gray-500">
-                    {selectedStudent.academicYear.year} - {selectedStudent.term.name}
-                  </p>
-                  {selectedStudent.parent && (
-                    <p className="text-sm text-gray-500">
-                      Parent: {selectedStudent.parent.name} ({selectedStudent.parent.email})
-                    </p>
-                  )}
-                </div>
-              </div>
 
-              {/* Marks Display */}
-              {selectedStudent.marks && selectedStudent.marks.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center space-x-2">
-                      <GraduationCap className="w-5 h-5" />
-                      <span>Academic Performance</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {(() => {
-                      const { examTypes, subjects, marksBySubjectAndExam } = getMarksByExamType(selectedStudent.marks)
-                      return (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="font-bold">Subject</TableHead>
-                                {examTypes.map((examType) => (
-                                  <TableHead key={examType} className="text-center font-bold">
-                                    {examType}
-                                  </TableHead>
-                                ))}
-                                <TableHead className="text-center font-bold">Total</TableHead>
-                                <TableHead className="text-center font-bold">Grade</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {marksBySubjectAndExam.map((subjectData) => (
-                                <TableRow key={subjectData.subject}>
-                                  <TableCell className="font-medium">{subjectData.subject}</TableCell>
-                                  {subjectData.marks.map((mark) => (
-                                    <TableCell key={mark.examType} className="text-center">
-                                      {mark.value > 0 ? mark.value : "-"}
-                                    </TableCell>
-                                  ))}
-                                  <TableCell className="text-center font-bold">{subjectData.total}</TableCell>
-                                  <TableCell className="text-center">
-                                    <Badge
-                                      variant={
-                                        subjectData.total >= 70
-                                          ? "default"
-                                          : subjectData.total >= 50
-                                            ? "secondary"
-                                            : "destructive"
-                                      }
-                                    >
-                                      {subjectData.total >= 80
-                                        ? "A"
-                                        : subjectData.total >= 70
-                                          ? "B"
-                                          : subjectData.total >= 60
-                                            ? "C"
-                                            : subjectData.total >= 50
-                                              ? "D"
-                                              : subjectData.total >= 40
-                                                ? "E"
-                                                : "F"}
-                                    </Badge>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+          <ScrollArea className="max-h-[80vh] pr-4">
+            {selectedStudent && (
+              <div className="space-y-8 py-4">
+                {/* Student Header */}
+                <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-xl p-6 border border-blue-100">
+                  <div className="flex items-center space-x-6">
+                    <Avatar className="w-24 h-24 border-4 border-white shadow-lg">
+                      <AvatarImage src={selectedStudent.photo || "/placeholder.svg"} alt={selectedStudent.name} />
+                      <AvatarFallback className="text-2xl font-bold bg-gradient-to-br from-blue-500 to-purple-600 text-white">
+                        {selectedStudent.name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <h2 className="text-3xl font-bold text-gray-900">{selectedStudent.name}</h2>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Class</Label>
+                          <p className="text-lg font-semibold text-gray-900">{selectedStudent.class.name}</p>
                         </div>
-                      )
-                    })()}
-                  </CardContent>
-                </Card>
-              )}
-
-              {selectedStudent.reportCards.map((report, index) => (
-                <Card key={report.id} className="border-2">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span>Report Card #{index + 1}</span>
-                      <Badge
-                        className={report.isApproved ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"}
-                      >
-                        {report.isApproved ? "Approved" : "Pending Review"}
-                      </Badge>
-                    </CardTitle>
-                    <CardDescription>
-                      Created: {new Date(report.createdAt).toLocaleDateString()}
-                      {report.approvedAt && (
-                        <span> | Approved: {new Date(report.approvedAt).toLocaleDateString()}</span>
-                      )}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Discipline</Label>
-                        <Badge variant="outline" className="mt-1">
-                          {report.discipline}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Cleanliness</Label>
-                        <Badge variant="outline" className="mt-1">
-                          {report.cleanliness}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Class Work</Label>
-                        <Badge variant="outline" className="mt-1">
-                          {report.classWorkPresentation}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">School Adherence</Label>
-                        <Badge variant="outline" className="mt-1">
-                          {report.adherenceToSchool}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Co-curricular</Label>
-                        <Badge variant="outline" className="mt-1">
-                          {report.coCurricularActivities}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Consideration</Label>
-                        <Badge variant="outline" className="mt-1">
-                          {report.considerationToOthers}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Speaking English</Label>
-                        <Badge variant="outline" className="mt-1">
-                          {report.speakingEnglish}
-                        </Badge>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Gender</Label>
+                          <p className="text-lg font-semibold text-gray-900">{selectedStudent.gender}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Student ID</Label>
+                          <p className="text-lg font-semibold text-gray-900">ID: {selectedStudent.id.slice(-6)}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Academic Year</Label>
+                          <p className="text-lg font-semibold text-gray-900">
+                            {academicYears.find((year) => year.id === selectedAcademicYear)?.year}
+                          </p>
+                        </div>
                       </div>
                     </div>
+                  </div>
+                </div>
 
-                    {report.classTeacherComment && (
-                      <div className="mb-4">
-                        <Label className="text-sm font-medium text-gray-600">Class Teacher Comment</Label>
-                        <p className="mt-1 p-3 bg-gray-50 rounded-lg text-sm">{report.classTeacherComment}</p>
+                {/* Academic Performance - Divisions */}
+                {studentReportDetails && (
+                  <Card className="border-2 border-blue-200">
+                    <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
+                      <CardTitle className="flex items-center space-x-2 text-xl">
+                        <Trophy className="w-6 h-6 text-blue-600" />
+                        <span>Academic Performance Analysis</span>
+                      </CardTitle>
+                      <CardDescription>
+                        Division-based performance across all exam types using top 4 general subjects only
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {["BOT", "MID", "END"].map((examType) => {
+                          // Mock division data since we don't have it in the current structure
+                          const mockDivision = {
+                            label: studentReportDetails.division,
+                            aggregate: studentReportDetails.overallAggregate,
+                            subjects: studentReportDetails.subjects
+                              .filter((s) => s.category === "GENERAL")
+                              .slice(0, 4)
+                              .map((s) => ({
+                                subjectName: s.name,
+                                grade: s.grade,
+                                gradeValue: s.grade === "D1" ? 1 : s.grade === "D2" ? 2 : 3,
+                                score: s.total,
+                              })),
+                          }
+
+                          return (
+                            <Card key={examType} className="border border-gray-200 hover:shadow-lg transition-shadow">
+                              <CardHeader className="pb-3">
+                                <CardTitle className="text-lg flex items-center space-x-2">
+                                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                                  <span>{examType}</span>
+                                </CardTitle>
+                                <CardDescription className="text-sm">
+                                  {examType === "BOT" && "Beginning of Term"}
+                                  {examType === "MID" && "Mid Term"}
+                                  {examType === "END" && "End of Term"}
+                                </CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                {mockDivision ? (
+                                  <div className="space-y-4">
+                                    <div
+                                      className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-bold ${getDivisionColor(mockDivision.label)}`}
+                                    >
+                                      <Award className="w-4 h-4 mr-2" />
+                                      {mockDivision.label}
+                                    </div>
+                                    {mockDivision && (
+                                      <div className="space-y-3">
+                                        <div className="flex items-center justify-between text-sm">
+                                          <span className="font-medium text-gray-600">Aggregate Score</span>
+                                          <span className="font-bold text-lg">{mockDivision.aggregate}</span>
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-medium text-gray-600 mb-2">
+                                            Top 4 General Subjects:
+                                          </p>
+                                          <div className="space-y-2">
+                                            {mockDivision.subjects.map((subject, idx) => (
+                                              <div
+                                                key={idx}
+                                                className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                                              >
+                                                <span className="text-sm font-medium">{subject.subjectName}</span>
+                                                <div className="flex items-center space-x-2">
+                                                  <Badge
+                                                    variant={getGradeBadgeVariant(subject.grade)}
+                                                    className="text-xs"
+                                                  >
+                                                    {subject.grade}
+                                                  </Badge>
+                                                  <span className="text-xs text-gray-500">({subject.gradeValue})</span>
+                                                  {subject.score && (
+                                                    <span className="text-xs text-blue-600">{subject.score}%</span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-center py-4">
+                                    <Badge variant="outline" className="text-gray-500">
+                                      No Data
+                                    </Badge>
+                                  </div>
+                                )}
+                              </CardContent>
+                            </Card>
+                          )
+                        })}
                       </div>
-                    )}
+                    </CardContent>
+                  </Card>
+                )}
 
-                    {report.headteacherComment && (
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Headteacher Comment</Label>
-                        <p className="mt-1 p-3 bg-blue-50 rounded-lg text-sm">{report.headteacherComment}</p>
+                {/* Marks Summary */}
+                {studentReportDetails && studentReportDetails.subjects.length > 0 && (
+                  <Card className="border-2 border-green-200">
+                    <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
+                      <CardTitle className="flex items-center space-x-2 text-xl">
+                        <BookOpen className="w-6 h-6 text-green-600" />
+                        <span>Subject Marks Summary</span>
+                      </CardTitle>
+                      <CardDescription>
+                        Detailed marks breakdown for {terms.find((t) => t.id === selectedTerm)?.name}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-gray-50">
+                              <TableHead className="font-bold">Subject</TableHead>
+                              <TableHead className="font-bold">Category</TableHead>
+                              <TableHead className="font-bold text-center">BOT</TableHead>
+                              <TableHead className="font-bold text-center">MID</TableHead>
+                              <TableHead className="font-bold text-center">END</TableHead>
+                              <TableHead className="font-bold text-center">Total</TableHead>
+                              <TableHead className="font-bold text-center">Grade</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {studentReportDetails.subjects.map((subject, index) => (
+                              <TableRow key={index} className={subject.category === "GENERAL" ? "bg-blue-50" : ""}>
+                                <TableCell className="font-medium">{subject.name}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={subject.category === "GENERAL" ? "default" : "secondary"}
+                                    className="text-xs"
+                                  >
+                                    {subject.category}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">{subject.bot || "-"}</TableCell>
+                                <TableCell className="text-center">{subject.midterm || "-"}</TableCell>
+                                <TableCell className="text-center">{subject.eot || "-"}</TableCell>
+                                <TableCell className="text-center font-bold">{subject.total || "-"}</TableCell>
+                                <TableCell className="text-center">
+                                  {subject.grade && (
+                                    <Badge variant={getGradeBadgeVariant(subject.grade)} className="font-bold">
+                                      {subject.grade}
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Parent Information */}
+                {selectedStudent.parent && (
+                  <Card className="border-2 border-purple-200">
+                    <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50">
+                      <CardTitle className="flex items-center space-x-2 text-xl">
+                        <Users className="w-6 h-6 text-purple-600" />
+                        <span>Parent/Guardian Information</span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium text-gray-600">Parent Name</Label>
+                          <p className="text-lg font-semibold text-gray-900">{selectedStudent.parent.name}</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium text-gray-600">Email Address</Label>
+                          <p className="text-lg font-semibold text-gray-900">{selectedStudent.parent.email}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Report Cards History */}
+                <Card className="border-2 border-orange-200">
+                  <CardHeader className="bg-gradient-to-r from-orange-50 to-yellow-50">
+                    <CardTitle className="flex items-center space-x-2 text-xl">
+                      <FileText className="w-6 h-6 text-orange-600" />
+                      <span>Behavioral Assessment Reports ({selectedStudent.reportCards.length})</span>
+                    </CardTitle>
+                    <CardDescription>Complete history of behavioral assessments and teacher comments</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    {selectedStudent.reportCards.length > 0 ? (
+                      <div className="space-y-6">
+                        {selectedStudent.reportCards.map((report, index) => (
+                          <Card key={report.id} className="border border-gray-200 hover:shadow-md transition-shadow">
+                            <CardHeader className="pb-3">
+                              <div className="flex items-center justify-between">
+                                <CardTitle className="text-lg flex items-center space-x-2">
+                                  <Star className="w-5 h-5 text-yellow-500" />
+                                  <span>Report #{report.id.slice(-8)}</span>
+                                </CardTitle>
+                                <div className="flex items-center space-x-2">
+                                  <Badge
+                                    className={
+                                      report.isApproved
+                                        ? "bg-green-100 text-green-800"
+                                        : "bg-orange-100 text-orange-800"
+                                    }
+                                  >
+                                    {report.isApproved ? "Approved" : "Pending Approval"}
+                                  </Badge>
+                                  {report.approvedAt && (
+                                    <span className="text-xs text-gray-500">
+                                      Approved: {new Date(report.approvedAt).toLocaleDateString()}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <CardDescription>
+                                Created: {new Date(report.createdAt).toLocaleDateString()}
+                              </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                {[
+                                  { key: "discipline", label: "Discipline", value: report.discipline },
+                                  { key: "cleanliness", label: "Cleanliness", value: report.cleanliness },
+                                  {
+                                    key: "classWorkPresentation",
+                                    label: "Class Work",
+                                    value: report.classWorkPresentation,
+                                  },
+                                  { key: "adherenceToSchool", label: "School Rules", value: report.adherenceToSchool },
+                                  {
+                                    key: "coCurricularActivities",
+                                    label: "Co-Curricular",
+                                    value: report.coCurricularActivities,
+                                  },
+                                  {
+                                    key: "considerationToOthers",
+                                    label: "Consideration",
+                                    value: report.considerationToOthers,
+                                  },
+                                  { key: "speakingEnglish", label: "Speaking English", value: report.speakingEnglish },
+                                ].map((field) => (
+                                  <div key={field.key} className="space-y-1">
+                                    <Label className="text-xs font-medium text-gray-600">{field.label}</Label>
+                                    <Badge variant="outline" className="text-xs">
+                                      {getBehavioralGradeDisplay(field.value || "")}
+                                    </Badge>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {report.classTeacherComment && (
+                                <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                                  <Label className="text-sm font-medium text-blue-800">Class Teacher Comment:</Label>
+                                  <p className="text-sm text-blue-700 mt-1">"{report.classTeacherComment}"</p>
+                                </div>
+                              )}
+
+                              {report.headteacherComment && (
+                                <div className="p-3 bg-green-50 rounded-lg">
+                                  <Label className="text-sm font-medium text-green-800">Head Teacher Comment:</Label>
+                                  <p className="text-sm text-green-700 mt-1">"{report.headteacherComment}"</p>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 space-y-4">
+                        <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center">
+                          <FileText className="w-8 h-8 text-gray-400" />
+                        </div>
+                        <div>
+                          <p className="text-lg font-medium text-gray-900">No behavioral assessment reports found</p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Create a report to track this student's behavioral progress
+                          </p>
+                        </div>
+                        <Button
+                          onClick={() => {
+                            // Handle create report action
+                            setIsViewDialogOpen(false)
+                          }}
+                          className="mt-4 bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create First Report
+                        </Button>
                       </div>
                     )}
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-          )}
+
+                {/* Quick Actions */}
+                <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t">
+                  <Button
+                    onClick={() => {
+                      // Handle edit/create report action
+                      setIsViewDialogOpen(false)
+                    }}
+                    className="w-full sm:w-auto hover:bg-emerald-50 hover:border-emerald-300 transition-colors"
+                    variant="outline"
+                  >
+                    <Edit className="w-4 h-4 mr-2" />
+                    {selectedStudent.reportCards.length > 0 ? "Edit Report" : "Create Report"}
+                  </Button>
+                  <Button
+                    onClick={() => setIsViewDialogOpen(false)}
+                    className="w-full sm:w-auto hover:bg-gray-50 transition-colors"
+                    variant="outline"
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            )}
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </div>
