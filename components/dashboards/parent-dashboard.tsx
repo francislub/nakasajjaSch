@@ -195,20 +195,20 @@ export default function ParentDashboard() {
                   </div>
                 </div>
                 <div className="flex space-x-2">
-                  <Link href={`/parent/children/${child.id}`}>
+                  {/* <Link href={`/parent/children/${child.id}`}>
                     <Button variant="outline" size="sm">
                       <Eye className="w-4 h-4 mr-2" />
                       View Details
                     </Button>
-                  </Link>
-                  {child.hasReportCard && (
+                  </Link> */}
+                  {/* {child.hasReportCard && (
                     <Link href={`/parent/report-cards/${child.id}`}>
                       <Button size="sm" className="bg-purple-600 hover:bg-purple-700">
                         <Award className="w-4 h-4 mr-2" />
                         View Report
                       </Button>
                     </Link>
-                  )}
+                  )} */}
                 </div>
               </div>
             </CardHeader>
