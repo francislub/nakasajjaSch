@@ -700,14 +700,14 @@ export interface ReportCardData {
           </div>
           
           <div class="student-info">
-              <div>NAME: <span class="underline-field">${student?.name || "Kawwoya Benedict"}</span></div>
-              <div>DIVISION: <span class="underline-field">${division || "INCOMPLETE"}</span></div>
+              <div>NAME: <span class="underline-field">${student?.name || ""}</span></div>
+              <div>DIVISION: <span class="underline-field">${division || ""}</span></div>
               <div>AGE: <span class="underline-field">${studentAge ? `${studentAge} years` : ""}</span></div>
           </div>
           
           <div class="student-info">
-              <div>CLASS: <span class="underline-field">${student?.class?.name || "P1"}</span></div>
-              <div>TERM: <span class="underline-field">${currentTerm?.name || "Term 1"}</span></div>
+              <div>CLASS: <span class="underline-field">${student?.class?.name || ""}</span></div>
+              <div>TERM: <span class="underline-field">${currentTerm?.name || ""}</span></div>
               <div>DATE: <span class="underline-field">${new Date().toLocaleDateString()}</span></div>
           </div>
           

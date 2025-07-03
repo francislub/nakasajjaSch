@@ -176,9 +176,9 @@ export default function RegisterPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ADMIN">Administrator</SelectItem>
-                      <SelectItem value="HEADTEACHER">Head Teacher</SelectItem>
-                      <SelectItem value="CLASS_TEACHER">Class Teacher</SelectItem>
-                      <SelectItem value="SECRETARY">Secretary</SelectItem>
+                      {/* <SelectItem value="HEADTEACHER">Head Teacher</SelectItem> */}
+                      {/* <SelectItem value="CLASS_TEACHER">Class Teacher</SelectItem> */}
+                      {/* <SelectItem value="SECRETARY">Secretary</SelectItem> */}
                     </SelectContent>
                   </Select>
                 </div>

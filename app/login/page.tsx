@@ -80,7 +80,7 @@ export default function LoginPage() {
             </div>
           </div>
           <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-            v2.0
+            v1.0
           </Badge>
         </div>
       </div>
@@ -195,7 +195,7 @@ export default function LoginPage() {
                 </div>
 
                 <div className="bg-gray-50 rounded-lg p-4 text-center">
-                  <p className="text-xs text-gray-500 mb-2">Demo Credentials</p>
+                  {/* <p className="text-xs text-gray-500 mb-2">Demo Credentials</p>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="bg-white rounded p-2">
                       <div className="font-medium text-gray-700">Admin</div>
@@ -205,7 +205,7 @@ export default function LoginPage() {
                       <div className="font-medium text-gray-700">Teacher</div>
                       <div className="text-gray-500">teacher@school.com</div>
                     </div>
-                  </div>
+                  </div> */}
                 </div>
               </CardContent>
             </Card>
