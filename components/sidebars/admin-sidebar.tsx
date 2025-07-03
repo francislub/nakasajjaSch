@@ -19,7 +19,7 @@ import {
   Users,
   GraduationCap,
   BookOpen,
-  Settings,
+  Calendar,
   BarChart3,
   ChevronUp,
   LogOut,
@@ -53,7 +53,7 @@ const adminMenuItems = [
     icon: Users,
     items: [
       { title: "All Users", url: "/admin/users" },
-      { title: "Class Teachers", url: "/admin/users/teachers" },
+      { title: "Subject Teachers", url: "/admin/users/teachers" },
       { title: "Secretaries", url: "/admin/users/secretaries" },
       { title: "Parents", url: "/admin/users/parents" },
     ],
@@ -81,11 +81,11 @@ const adminMenuItems = [
     url: "/admin/grading",
     icon: Award,
   },
-  // {
-  //   title: "Settings",
-  //   url: "/admin/settings",
-  //   icon: Settings,
-  // },
+  {
+    title: "Next Term Schedules",
+    url: "/admin/next-term",
+    icon: Calendar,
+  },
 ]
 
 export function AdminSidebar() {

@@ -88,6 +88,7 @@ model AcademicYear {
   attendance Attendance[]
   subjectTeachers SubjectTeacher[]
   subjects  Subject[] @relation("SubjectAcademicYear")
+  nextTermSchedules NextTermSchedule[]
 
   @@map("academic_years")
 }
@@ -106,8 +107,25 @@ model Term {
   marks      Mark[]
   attendance Attendance[]
   subjectTeachers SubjectTeacher[]
+  nextTermSchedules NextTermSchedule[]
 
   @@map("terms")
+}
+
+model NextTermSchedule {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  academicYearId String      @db.ObjectId
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  termId         String      @db.ObjectId
+  term           Term        @relation(fields: [termId], references: [id], onDelete: Cascade)
+  nextTermStartDate DateTime?
+  nextTermEndDate   DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  // Ensure one schedule per term per academic year
+  @@unique([academicYearId, termId])
+  @@map("next_term_schedules")
 }
 
 model Class {

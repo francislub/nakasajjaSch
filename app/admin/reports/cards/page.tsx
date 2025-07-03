@@ -473,7 +473,20 @@ export default function AdminReportCardsPage() {
 
     setIsDownloading(true)
     try {
-      const response = await fetch(`/api/admin/reports/download?studentId=${studentId}&reportId=${reportId}`)
+      // Find the report card to get its term and academic year
+      const report = reportCards.find((r) => r.id === reportId)
+      if (!report) {
+        throw new Error("Report card not found")
+      }
+
+      const params = new URLSearchParams({
+        studentId,
+        reportId,
+        termId: report.term.id,
+        academicYearId: report.academicYear.id,
+      })
+
+      const response = await fetch(`/api/admin/reports/download?${params}`)
       if (response.ok) {
         const htmlContent = await response.text()
         const newWindow = window.open("", "_blank")
@@ -486,12 +499,14 @@ export default function AdminReportCardsPage() {
           description: "Report card opened for printing",
         })
       } else {
-        throw new Error("Failed to generate report card")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to generate report card")
       }
     } catch (error) {
+      console.error("Download error:", error)
       toast({
         title: "Error",
-        description: "Failed to generate report card",
+        description: error instanceof Error ? error.message : "Failed to generate report card",
         variant: "destructive",
       })
     } finally {
@@ -540,12 +555,14 @@ export default function AdminReportCardsPage() {
           description: "Class report cards opened for printing",
         })
       } else {
-        throw new Error("Failed to generate class reports")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to generate class reports")
       }
     } catch (error) {
+      console.error("Download error:", error)
       toast({
         title: "Error",
-        description: "Failed to generate class reports",
+        description: error instanceof Error ? error.message : "Failed to generate class reports",
         variant: "destructive",
       })
     } finally {
@@ -605,6 +622,13 @@ export default function AdminReportCardsPage() {
         reportCard,
         student: reportCard.student,
         gradingSystem: gradingSystem,
+        division: "DIVISION I", // This would be calculated properly
+        aggregate: 0, // This would be calculated properly
+        generalSubjectsData: [],
+        allSubjectsData: [],
+        totals: {},
+        term: reportCard.term,
+        academicYear: reportCard.academicYear,
       })
 
       const newWindow = window.open("", "_blank")
