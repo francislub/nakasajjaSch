@@ -324,10 +324,10 @@ export default function TeacherAttendancePage() {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-          <Button variant="outline" onClick={exportAttendance} className="w-full sm:w-auto bg-transparent">
+          {/* <Button variant="outline" onClick={exportAttendance} className="w-full sm:w-auto bg-transparent">
             <Download className="w-4 h-4 mr-2" />
             Export
-          </Button>
+          </Button> */}
           <Button
             onClick={handleSaveAttendance}
             disabled={saving}
@@ -861,7 +861,7 @@ export default function TeacherAttendancePage() {
                   />
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+              {/* <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                 <Button onClick={exportAttendance} className="bg-green-600 hover:bg-green-700 w-full sm:w-auto">
                   <Download className="w-4 h-4 mr-2" />
                   Export Detailed Report
@@ -870,7 +870,7 @@ export default function TeacherAttendancePage() {
                   <FileSpreadsheet className="w-4 h-4 mr-2" />
                   Summary Report
                 </Button>
-              </div>
+              </div> */}
             </CardContent>
           </Card>
 
