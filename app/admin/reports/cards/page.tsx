@@ -9,8 +9,31 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { useToast } from "@/hooks/use-toast"
-import { Search, Eye, FileText, CheckCircle, XCircle, Calendar, BarChart3, Loader2, Printer } from "lucide-react"
+import {
+  Search,
+  Eye,
+  FileText,
+  CheckCircle,
+  XCircle,
+  Calendar,
+  BarChart3,
+  Loader2,
+  Printer,
+  Send,
+  UserCheck,
+} from "lucide-react"
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement } from "chart.js"
 import { Bar, Doughnut } from "react-chartjs-2"
 import { generateReportCardHTML } from "@/lib/report-card-generator"
@@ -34,6 +57,7 @@ interface ReportCard {
       }>
     }
     parent?: {
+      id: string
       name: string
       email: string
     }
@@ -108,6 +132,7 @@ interface ReportCard {
     maxMark: number
     comment?: string
   }>
+  parentAccessEnabled?: boolean
 }
 
 interface Class {
@@ -199,6 +224,7 @@ export default function AdminReportCardsPage() {
   const [isClassPreviewOpen, setIsClassPreviewOpen] = useState(false)
   const [isBulkPreviewOpen, setIsBulkPreviewOpen] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [isEnablingAccess, setIsEnablingAccess] = useState(false)
   const [gradingSystem, setGradingSystem] = useState<
     Array<{
       id: string
@@ -462,6 +488,51 @@ export default function AdminReportCardsPage() {
         description: "Failed to approve report card",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleEnableParentAccess = async (reportId: string, studentName: string, parentName?: string) => {
+    if (!parentName) {
+      toast({
+        title: "Error",
+        description: "No parent assigned to this student",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsEnablingAccess(true)
+    try {
+      const response = await fetch(`/api/admin/reports/enable-parent-access`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reportId,
+          studentName,
+          parentName,
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: `Parent access enabled for ${studentName}'s report card. ${parentName} can now view the report.`,
+        })
+        fetchReportCards() // Refresh to show updated status
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to enable parent access")
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to enable parent access",
+        variant: "destructive",
+      })
+    } finally {
+      setIsEnablingAccess(false)
     }
   }
 
@@ -984,6 +1055,7 @@ export default function AdminReportCardsPage() {
                   <TableHead>Parent</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Parent Access</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1025,6 +1097,11 @@ export default function AdminReportCardsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
+                      <Badge variant={report.parentAccessEnabled ? "default" : "outline"}>
+                        {report.parentAccessEnabled ? "Enabled" : "Disabled"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-2">
                         <Button
                           size="sm"
@@ -1055,6 +1132,92 @@ export default function AdminReportCardsPage() {
                             <Printer className="h-4 w-4" />
                           )}
                         </Button>
+                        {report.isApproved && report.student.parent && !report.parentAccessEnabled && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-blue-600 hover:text-blue-700 bg-transparent"
+                                disabled={isEnablingAccess}
+                              >
+                                {isEnablingAccess ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Send className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Enable Parent Access</AlertDialogTitle>
+                                <AlertDialogDescription className="space-y-4">
+                                  <div>
+                                    You are about to enable parent access for <strong>{report.student.name}'s</strong>{" "}
+                                    report card.
+                                  </div>
+
+                                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                    <h4 className="font-semibold text-yellow-800 mb-2">⚠️ Please Confirm:</h4>
+                                    <ul className="text-sm text-yellow-700 space-y-1">
+                                      <li>
+                                        • Has the parent <strong>{report.student.parent?.name}</strong> paid all school
+                                        fees?
+                                      </li>
+                                      <li>• Are there any outstanding balances or dues?</li>
+                                      <li>• Has the student completed all required assessments?</li>
+                                      <li>• Is the report card ready for parent review?</li>
+                                    </ul>
+                                  </div>
+
+                                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                    <h4 className="font-semibold text-blue-800 mb-2">📋 What happens next:</h4>
+                                    <ul className="text-sm text-blue-700 space-y-1">
+                                      <li>• Parent will be able to view the report card online</li>
+                                      <li>• Parent can download and print the report card</li>
+                                      <li>• Access will be available immediately after confirmation</li>
+                                      {/* <li>• Parent will be notified via email (if configured)</li> */}
+                                    </ul>
+                                  </div>
+
+                                  <div className="text-sm text-gray-600">
+                                    <strong>Parent:</strong> {report.student.parent?.name}
+                                    <br />
+                                    <strong>Email:</strong> {report.student.parent?.email}
+                                    <br />
+                                    <strong>Student:</strong> {report.student.name}
+                                    <br />
+                                    <strong>Class:</strong> {report.student.class.name}
+                                    <br />
+                                    <strong>Term:</strong> {report.term.name}
+                                  </div>
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() =>
+                                    handleEnableParentAccess(
+                                      report.id,
+                                      report.student.name,
+                                      report.student.parent?.name,
+                                    )
+                                  }
+                                  className="bg-green-600 hover:bg-green-700"
+                                >
+                                  <UserCheck className="mr-2 h-4 w-4" />
+                                  Yes, Enable Access
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        {report.parentAccessEnabled && (
+                          <Badge variant="outline" className="text-green-600 border-green-600">
+                            <UserCheck className="mr-1 h-3 w-3" />
+                            Sent
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
